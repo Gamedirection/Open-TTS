@@ -269,6 +269,10 @@ textarea {
   font-weight: 600;
 }
 
+.composer button.stop-mode {
+  background: #ef4444;
+}
+
 .settings-panel {
   position: fixed;
   top: 0;

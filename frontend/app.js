@@ -38,7 +38,7 @@ const state = {
     serverUrl: "",
     voice: "",
     speed: 1.0,
-    prependSilenceMs: 350,
+    prependSilenceMs: 0,
     volume: 1.0,
     downloadFormat: "wav",
     theme: "dark",
@@ -69,8 +69,7 @@ const modelsList = document.getElementById("modelsList");
 const refreshModelsBtn = document.getElementById("refreshModelsBtn");
 const testVoiceBtn = document.getElementById("testVoiceBtn");
 const loadingIndicator = document.getElementById("loadingIndicator");
-const speakButton = chatForm.querySelector("button[type='submit']");
-const stopAudioBtn = document.getElementById("stopAudioBtn");
+const speakButton = document.getElementById("speakStopBtn");
 const volumeInput = document.getElementById("volumeInput");
 const volumeValue = document.getElementById("volumeValue");
 const downloadConfigBtn = document.getElementById("downloadConfigBtn");
@@ -145,7 +144,7 @@ function queueHistorySync() {
 
 function setLoading(isLoading) {
   loadingIndicator.classList.toggle("active", isLoading);
-  if (speakButton) speakButton.disabled = isLoading;
+  updateComposerActionButton();
 }
 
 function normalizeVolume(value) {
@@ -185,6 +184,7 @@ function stopPlayback(clearQueue = true) {
   visualizer.classList.remove("active");
   clearWordHighlights();
   setLoading(false);
+  updateComposerActionButton();
   render();
 }
 
@@ -208,6 +208,7 @@ async function processAudioQueue() {
     }
   }
   state.queueRunning = false;
+  updateComposerActionButton();
 }
 
 function normalizeKeyToken(token) {
@@ -487,7 +488,7 @@ function normalizeDownloadFormat(value) {
 
 function normalizePrependSilenceMs(value) {
   const n = Number(value);
-  if (Number.isNaN(n)) return 350;
+  if (Number.isNaN(n)) return 0;
   return Math.max(0, Math.min(3000, Math.round(n)));
 }
 
@@ -540,12 +541,6 @@ function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value;
   return div.innerHTML;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function waitForAudioReady(audio, timeoutMs = 2500) {
@@ -724,7 +719,6 @@ async function playSettingsVoiceSampleNow() {
     audio.volume = normalizeVolume(state.settings.volume);
     state.currentAudio = audio;
     await waitForAudioReady(audio);
-    await sleep(140);
     visualizer.classList.add("active");
 
     const onDone = () => {
@@ -851,7 +845,6 @@ async function playEntryNow(id) {
         state.currentAudio = audio;
         state.activePlaybackId = id;
         await waitForAudioReady(audio);
-        await sleep(140);
         visualizer.classList.add("active");
 
         let interval = 0.2;
@@ -890,7 +883,6 @@ async function playEntryNow(id) {
     state.currentAudio = audio;
     state.activePlaybackId = id;
     await waitForAudioReady(audio);
-    await sleep(140);
     visualizer.classList.add("active");
 
     let words = wordify(entry.text);
@@ -1042,6 +1034,23 @@ function deleteAllByPinnedState(shouldDeletePinned) {
   render();
 }
 
+function isPlaybackActive() {
+  return (
+    loadingIndicator.classList.contains("active") ||
+    state.activePlaybackId !== null ||
+    Boolean(state.currentAudio) ||
+    state.queueRunning ||
+    state.audioQueue.length > 0
+  );
+}
+
+function updateComposerActionButton() {
+  if (!speakButton) return;
+  const active = isPlaybackActive();
+  speakButton.textContent = active ? "Stop" : "Speak";
+  speakButton.classList.toggle("stop-mode", active);
+}
+
 async function submitText(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -1069,8 +1078,12 @@ async function submitText(text) {
 }
 
 function bindEvents() {
-  chatForm.addEventListener("submit", async (ev) => {
+  speakButton.addEventListener("click", async (ev) => {
     ev.preventDefault();
+    if (isPlaybackActive()) {
+      stopPlayback();
+      return;
+    }
     const text = textInput.value;
     textInput.value = "";
     await submitText(text);
@@ -1214,7 +1227,6 @@ function bindEvents() {
 
   settingsBtn.addEventListener("click", openSettings);
   closeSettings.addEventListener("click", closeSettingsPanel);
-  stopAudioBtn.addEventListener("click", stopPlayback);
   volumeInput.addEventListener("input", () => {
     state.settings.volume = normalizeVolume(volumeInput.value);
     updateVolumeLabel();
@@ -1364,6 +1376,7 @@ async function init() {
   volumeInput.value = String(state.settings.volume);
   updateVolumeLabel();
   updateSpeedLabel();
+  updateComposerActionButton();
 
   try {
     await fetchVoices();

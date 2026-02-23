@@ -32,7 +32,6 @@
           <span>Preparing audio...</span>
         </div>
         <div class="playback-controls">
-          <button id="stopAudioBtn" type="button" class="stop-btn">Stop</button>
           <label class="volume-control" for="volumeInput">
             <span>Volume</span>
             <input id="volumeInput" type="range" min="0" max="1" step="0.01" />
@@ -49,7 +48,7 @@
             autocomplete="off"
             required
           ></textarea>
-          <button type="submit">Speak</button>
+          <button id="speakStopBtn" type="button">Speak</button>
         </form>
       </main>
     </div>

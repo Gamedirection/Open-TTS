@@ -29,7 +29,7 @@ DEFAULT_VOICE_BASE = os.getenv(
 )
 PIPER_BIN = os.getenv("PIPER_BIN", "piper")
 SPEAK_TIMEOUT_SECONDS = int(os.getenv("PIPER_TIMEOUT_SECONDS", "60"))
-PREPEND_SILENCE_MS = int(os.getenv("OPEN_TTS_PREPEND_SILENCE_MS", "350"))
+PREPEND_SILENCE_MS = int(os.getenv("OPEN_TTS_PREPEND_SILENCE_MS", "0"))
 VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_DOWNLOAD_FORMATS = {"wav", "mp3", "ogg"}
 SUPERTONIC_VOICE_NAMES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
