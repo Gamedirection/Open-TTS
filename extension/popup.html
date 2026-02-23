@@ -25,11 +25,11 @@
         --stop: #f43f5e;
         --settings: #374151;
       }
-      body { font-family: Arial, sans-serif; margin: 0; width: 340px; background: var(--bg); color: var(--text); }
+      body { font-family: Arial, sans-serif; margin: 0; width: 360px; background: var(--bg); color: var(--text); }
       .wrap { padding: 12px; display: grid; gap: 10px; }
       .row { display: flex; gap: 8px; }
       input, textarea, button { font: inherit; }
-      input, textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--panel); color: var(--text); }
+      input, textarea, select { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--panel); color: var(--text); }
       textarea { min-height: 72px; resize: vertical; }
       .btn { border: 0; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
       .speak { background: var(--speak); color: #fff; }
@@ -37,6 +37,10 @@
       .settings { background: var(--settings); color: #fff; }
       .muted { font-size: 12px; color: var(--muted); }
       .last { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-height: 36px; max-height: 90px; overflow: auto; }
+      .settings-panel { display: none; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px; gap: 8px; }
+      .settings-panel.open { display: grid; }
+      .settings-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .tiny { font-size: 11px; color: var(--muted); }
     </style>
   </head>
   <body>
@@ -48,6 +52,30 @@
         <button class="btn speak" id="speakBtn">Speak</button>
         <button class="btn stop" id="stopBtn">Stop</button>
         <button class="btn settings" id="settingsBtn">Settings</button>
+      </div>
+      <div id="settingsPanel" class="settings-panel">
+        <input id="mainSiteUrlInput" type="url" placeholder="Main Site URL (e.g. http://localhost:3015)" />
+        <select id="voiceSelect"></select>
+        <input id="speedInput" type="number" min="0.5" max="2" step="0.1" placeholder="Speed (0.5 - 2.0)" />
+        <input id="volumeInput" type="number" min="0" max="1" step="0.1" placeholder="Volume (0 - 1)" />
+        <select id="downloadFormatInput">
+          <option value="wav">wav</option>
+          <option value="mp3">mp3</option>
+          <option value="ogg">ogg</option>
+        </select>
+        <select id="themeInput">
+          <option value="light">light</option>
+          <option value="dark">dark</option>
+        </select>
+        <label><input id="autoPasteInput" type="checkbox" /> Auto-paste clipboard on input focus</label>
+        <div class="settings-actions">
+          <button class="btn speak" id="saveSettingsBtn">Save</button>
+          <button class="btn speak" id="testVoiceBtn">Test Voice</button>
+          <button class="btn settings" id="downloadConfigBtn">Download Config</button>
+          <button class="btn settings" id="uploadConfigBtn">Upload Config</button>
+          <input id="configFileInput" type="file" accept="application/json" style="display:none" />
+        </div>
+        <div class="tiny">Settings are synced to server via <code>/api/settings</code>.</div>
       </div>
       <div class="muted" id="status"></div>
     </div>
