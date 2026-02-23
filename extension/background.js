@@ -11,7 +11,7 @@ async function getSettings() {
     downloadFormat: "wav",
     autoPasteClipboard: false,
     hotkeys: {},
-    prependSilenceMs: 350,
+    prependSilenceMs: 0,
   });
   const serverUrl = normalizeServerUrl(data.serverUrl || "http://localhost:3016");
   return {
@@ -26,7 +26,7 @@ async function getSettings() {
       : "wav",
     autoPasteClipboard: Boolean(data.autoPasteClipboard),
     hotkeys: data.hotkeys && typeof data.hotkeys === "object" ? data.hotkeys : {},
-    prependSilenceMs: Math.max(0, Math.min(3000, Number(data.prependSilenceMs ?? 350) || 350)),
+    prependSilenceMs: Math.max(0, Math.min(3000, Number(data.prependSilenceMs ?? 0) || 0)),
   };
 }
 
@@ -153,7 +153,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           : "wav";
         merged.autoPasteClipboard = Boolean(merged.autoPasteClipboard);
         merged.hotkeys = merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {};
-        merged.prependSilenceMs = Math.max(0, Math.min(3000, Number(merged.prependSilenceMs ?? 350) || 350));
+        merged.prependSilenceMs = Math.max(0, Math.min(3000, Number(merged.prependSilenceMs ?? 0) || 0));
 
         await chrome.storage.sync.set({
           serverUrl: merged.serverUrl,

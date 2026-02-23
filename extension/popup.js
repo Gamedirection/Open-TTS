@@ -1,7 +1,6 @@
 const serverUrlInput = document.getElementById("serverUrlInput");
 const textInput = document.getElementById("textInput");
 const speakBtn = document.getElementById("speakBtn");
-const stopBtn = document.getElementById("stopBtn");
 const settingsBtn = document.getElementById("settingsBtn");
 const lastEntry = document.getElementById("lastEntry");
 const statusEl = document.getElementById("status");
@@ -20,9 +19,23 @@ const uploadConfigBtn = document.getElementById("uploadConfigBtn");
 const configFileInput = document.getElementById("configFileInput");
 
 let currentAudio = null;
+let speakingState = false;
 
 function status(msg) {
   statusEl.textContent = msg || "";
+}
+
+function setSpeakButtonState(isSpeaking) {
+  speakingState = Boolean(isSpeaking);
+  if (speakingState) {
+    speakBtn.textContent = "Stop";
+    speakBtn.classList.remove("speak");
+    speakBtn.classList.add("stop");
+  } else {
+    speakBtn.textContent = "Speak";
+    speakBtn.classList.remove("stop");
+    speakBtn.classList.add("speak");
+  }
 }
 
 function normalize(url) {
@@ -83,6 +96,7 @@ function stopLocalAudio() {
     currentAudio.currentTime = 0;
     currentAudio = null;
   }
+  setSpeakButtonState(false);
 }
 
 async function stopEverywhere() {
@@ -100,13 +114,15 @@ async function stopEverywhere() {
 async function playPopupAudio(audioUrl) {
   stopLocalAudio();
   currentAudio = new Audio(audioUrl);
+  currentAudio.addEventListener("ended", () => setSpeakButtonState(false), { once: true });
+  currentAudio.addEventListener("error", () => setSpeakButtonState(false), { once: true });
   await currentAudio.play();
 }
 
 async function speakCurrentInput() {
   const text = (textInput.value || "").trim();
   if (!text) return;
-  speakBtn.disabled = true;
+  setSpeakButtonState(true);
   status("Generating audio...");
   try {
     const { audioUrl } = await speak(text);
@@ -114,9 +130,8 @@ async function speakCurrentInput() {
     status("Playing.");
     await refreshUI();
   } catch (err) {
+    setSpeakButtonState(false);
     status(`Error: ${err.message}`);
-  } finally {
-    speakBtn.disabled = false;
   }
 }
 
@@ -142,7 +157,7 @@ async function refreshUI() {
   applyTheme(settings.theme);
   if (speedInput) speedInput.value = String(Number(settings.speed || 1.0));
   if (volumeInput) volumeInput.value = String(Number(settings.volume ?? 1.0));
-  if (prependSilenceInput) prependSilenceInput.value = String(Number(settings.prependSilenceMs ?? 350));
+  if (prependSilenceInput) prependSilenceInput.value = String(Number(settings.prependSilenceMs ?? 0));
   if (downloadFormatInput) downloadFormatInput.value = ["wav", "mp3", "ogg"].includes(settings.downloadFormat) ? settings.downloadFormat : "wav";
   if (themeInput) themeInput.value = settings.theme === "dark" ? "dark" : "light";
   if (autoPasteInput) autoPasteInput.checked = Boolean(settings.autoPasteClipboard);
@@ -172,7 +187,7 @@ async function saveSettingsFromInputs() {
   const voice = voiceSelect?.value || "";
   const speed = Number(speedInput?.value || 1);
   const volume = Number(volumeInput?.value ?? 1);
-  const prependSilenceMs = Math.max(0, Math.min(3000, Number(prependSilenceInput?.value ?? 350) || 350));
+  const prependSilenceMs = Math.max(0, Math.min(3000, Number(prependSilenceInput?.value ?? 0) || 0));
   const downloadFormat = ["wav", "mp3", "ogg"].includes(downloadFormatInput?.value) ? downloadFormatInput.value : "wav";
   const theme = themeInput?.value === "dark" ? "dark" : "light";
   const autoPasteClipboard = Boolean(autoPasteInput?.checked);
@@ -203,12 +218,12 @@ serverUrlInput.addEventListener("change", async () => {
 });
 
 speakBtn.addEventListener("click", async () => {
+  if (speakingState) {
+    await stopEverywhere();
+    status("Stopped.");
+    return;
+  }
   await speakCurrentInput();
-});
-
-stopBtn.addEventListener("click", async () => {
-  await stopEverywhere();
-  status("Stopped.");
 });
 
 settingsBtn.addEventListener("click", async () => {
@@ -270,7 +285,7 @@ downloadConfigBtn?.addEventListener("click", async (ev) => {
         voice: settings.voice || "",
         speed: Number(settings.speed || 1),
         volume: Number(settings.volume ?? 1),
-        prependSilenceMs: Number(settings.prependSilenceMs ?? 350),
+        prependSilenceMs: Number(settings.prependSilenceMs ?? 0),
         downloadFormat: settings.downloadFormat || "wav",
         theme: settings.theme === "dark" ? "dark" : "light",
         autoPasteClipboard: Boolean(settings.autoPasteClipboard),
@@ -308,7 +323,7 @@ configFileInput?.addEventListener("change", async () => {
     const voice = String(imported.voice || "");
     const speed = Number(imported.speed ?? 1);
     const volume = Number(imported.volume ?? 1);
-    const prependSilenceMs = Math.max(0, Math.min(3000, Number(imported.prependSilenceMs ?? 350) || 350));
+    const prependSilenceMs = Math.max(0, Math.min(3000, Number(imported.prependSilenceMs ?? 0) || 0));
     const downloadFormat = ["wav", "mp3", "ogg"].includes(imported.downloadFormat) ? imported.downloadFormat : "wav";
     const theme = imported.theme === "dark" ? "dark" : "light";
     const autoPasteClipboard = Boolean(imported.autoPasteClipboard);
