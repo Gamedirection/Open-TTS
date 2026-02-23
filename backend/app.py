@@ -731,8 +731,16 @@ def download_audio(name: str):
     )
 
 
+def try_ensure_default_voice():
+    try:
+        ensure_default_voice()
+    except Exception as exc:
+        # Keep API available even when default model download is unavailable.
+        print(f"[open-tts] warning: could not ensure default voice: {exc}")
+
+
 if __name__ == "__main__":
-    ensure_default_voice()
+    try_ensure_default_voice()
     app.run(host="0.0.0.0", port=5000)
 else:
-    ensure_default_voice()
+    try_ensure_default_voice()
