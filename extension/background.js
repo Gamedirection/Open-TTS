@@ -208,7 +208,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           }
         }
 
-        const remoteSaved = await putRemoteSettings(serverUrl, localToSave);
+        let remoteSaved = {};
+        let syncWarning = "";
+        try {
+          remoteSaved = await putRemoteSettings(serverUrl, localToSave);
+        } catch (err) {
+          syncWarning = err?.message || "Settings sync failed";
+        }
         const merged = {
           ...existing,
           ...localToSave,
@@ -236,7 +242,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           autoPasteClipboard: merged.autoPasteClipboard,
           hotkeys: merged.hotkeys,
         });
-        sendResponse({ ok: true, ...merged });
+        sendResponse({ ok: true, syncWarning, ...merged });
         return;
       }
       if (message?.type === "open_tts_speak") {

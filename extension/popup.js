@@ -173,8 +173,8 @@ async function saveSettingsFromInputs() {
 serverUrlInput.addEventListener("change", async () => {
   try {
     const serverUrl = normalizeServerUrl(serverUrlInput.value);
-    await setSettings({ serverUrl, mainSiteUrl: deriveMainSiteUrl(serverUrl) });
-    status("Server saved.");
+    const saved = await setSettings({ serverUrl, mainSiteUrl: deriveMainSiteUrl(serverUrl) });
+    status(saved.syncWarning ? `Saved locally. Server sync failed: ${saved.syncWarning}` : "Settings synced.");
   } catch (err) {
     status(err.message);
   }
@@ -237,8 +237,8 @@ textInput.addEventListener("keydown", async (ev) => {
 saveSettingsBtn?.addEventListener("click", async (ev) => {
   ev.preventDefault();
   try {
-    await saveSettingsFromInputs();
-    status("Settings synced.");
+    const saved = await saveSettingsFromInputs();
+    status(saved.syncWarning ? `Saved locally. Server sync failed: ${saved.syncWarning}` : "Settings synced.");
   } catch (err) {
     status(`Could not save settings: ${err.message}`);
   }
