@@ -52,14 +52,15 @@ const chatForm = document.getElementById("chatForm");
 const textInput = document.getElementById("textInput");
 const visualizer = document.getElementById("visualizer");
 const settingsBtn = document.getElementById("settingsBtn");
-const settingsDialog = document.getElementById("settingsDialog");
+const settingsPanel = document.getElementById("settingsPanel");
 const settingsForm = document.getElementById("settingsForm");
+const settingsSyncStatus = document.getElementById("settingsSyncStatus");
 const serverUrlInput = document.getElementById("serverUrlInput");
 const voiceSelect = document.getElementById("voiceSelect");
 const speedInput = document.getElementById("speedInput");
 const speedValue = document.getElementById("speedValue");
 const downloadFormatSelect = document.getElementById("downloadFormatSelect");
-const cancelSettings = document.getElementById("cancelSettings");
+const closeSettings = document.getElementById("closeSettings");
 const darkModeInput = document.getElementById("darkModeInput");
 const autoPasteInput = document.getElementById("autoPasteInput");
 const modelsList = document.getElementById("modelsList");
@@ -78,6 +79,7 @@ const deleteAllPinnedBtn = document.getElementById("deleteAllPinnedBtn");
 let lastClipboardAutopasteMs = 0;
 let settingsSyncTimer = null;
 let historySyncTimer = null;
+let lastSettingsSyncAt = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -113,8 +115,12 @@ function saveHistory() {
 }
 
 function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  persistLocalSettings();
   queueSettingsSync();
+}
+
+function persistLocalSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
 function queueSettingsSync() {
@@ -315,6 +321,18 @@ async function syncSettingsToServer() {
     body: JSON.stringify(getSharedSettingsPayload()),
   });
   if (!res.ok) throw new Error(`settings sync failed (${res.status})`);
+  const saved = await res.json();
+  state.settings = {
+    ...state.settings,
+    ...saved,
+    hotkeys: normalizeHotkeysObject(saved.hotkeys ?? state.settings.hotkeys),
+  };
+  state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
+  state.settings.volume = normalizeVolume(state.settings.volume);
+  state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
+  persistLocalSettings();
+  lastSettingsSyncAt = nowIso();
+  updateSettingsSyncStatus(true);
 }
 
 async function syncHistoryToServer() {
@@ -381,13 +399,14 @@ async function importConfigFile(file) {
   state.settings.theme = importedSettings.theme === "dark" ? "dark" : "light";
   state.settings.autoPasteClipboard = Boolean(importedSettings.autoPasteClipboard ?? state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(importedHotkeys);
-  saveSettings();
+  persistLocalSettings();
   applyTheme();
 
   try {
+    await syncSettingsToServer();
     await fetchVoices();
   } catch (err) {
-    alert(`Config imported, but could not load voices: ${err.message}`);
+    alert(`Config imported, but could not sync completely: ${err.message}`);
   }
 
   renderVoiceOptions();
@@ -398,6 +417,32 @@ async function importConfigFile(file) {
 function applyTheme() {
   const theme = state.settings.theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", theme);
+}
+
+function isSettingsOpen() {
+  return settingsPanel.classList.contains("open");
+}
+
+function closeSettingsPanel() {
+  settingsPanel.classList.remove("open");
+  settingsPanel.setAttribute("aria-hidden", "true");
+}
+
+async function refreshSettingsFromServer() {
+  const res = await fetch(`${getApiBase()}/api/settings`);
+  if (!res.ok) throw new Error(`Could not load server settings (${res.status})`);
+  const remoteSettings = await res.json();
+  state.settings = {
+    ...state.settings,
+    ...remoteSettings,
+    hotkeys: normalizeHotkeysObject(remoteSettings.hotkeys ?? state.settings.hotkeys),
+  };
+  state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
+  state.settings.volume = normalizeVolume(state.settings.volume);
+  state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
+  persistLocalSettings();
+  lastSettingsSyncAt = nowIso();
+  updateSettingsSyncStatus(true);
 }
 
 async function maybeAutoPasteClipboard() {
@@ -441,6 +486,21 @@ function absoluteAudioUrl(audioUrl) {
 
 function formatTime(iso) {
   return new Date(iso).toLocaleString();
+}
+
+function updateSettingsSyncStatus(ok = true, message = "") {
+  if (!settingsSyncStatus) return;
+  if (message) {
+    settingsSyncStatus.textContent = message;
+    settingsSyncStatus.classList.toggle("error", !ok);
+    return;
+  }
+  if (lastSettingsSyncAt) {
+    settingsSyncStatus.textContent = `Last synced: ${new Date(lastSettingsSyncAt).toLocaleString()}`;
+  } else {
+    settingsSyncStatus.textContent = "Last synced: not yet";
+  }
+  settingsSyncStatus.classList.toggle("error", !ok);
 }
 
 function updateSpeedLabel() {
@@ -1077,7 +1137,7 @@ function bindEvents() {
     }
 
     if (ev.key === "Escape") {
-      if (settingsDialog.open) settingsDialog.close();
+      if (isSettingsOpen()) closeSettingsPanel();
       stopPlayback();
       return;
     }
@@ -1138,11 +1198,7 @@ function bindEvents() {
   });
 
   settingsBtn.addEventListener("click", openSettings);
-  cancelSettings.addEventListener("click", () => settingsDialog.close());
-  settingsDialog.addEventListener("cancel", (ev) => {
-    ev.preventDefault();
-    settingsDialog.close();
-  });
+  closeSettings.addEventListener("click", closeSettingsPanel);
   stopAudioBtn.addEventListener("click", stopPlayback);
   volumeInput.addEventListener("input", () => {
     state.settings.volume = normalizeVolume(volumeInput.value);
@@ -1229,24 +1285,34 @@ function bindEvents() {
     state.settings.theme = darkModeInput.checked ? "dark" : "light";
     state.settings.autoPasteClipboard = autoPasteInput.checked;
     state.settings.hotkeys = readHotkeysFromInputs();
-    saveSettings();
-    applyTheme();
+    persistLocalSettings();
 
     try {
+      await syncSettingsToServer();
       await fetchVoices();
+      applyTheme();
+      renderVoiceOptions();
+      renderModels();
+      closeSettingsPanel();
     } catch (err) {
-      alert(`Could not fetch voices from server: ${err.message}`);
+      updateSettingsSyncStatus(false, `Last sync failed: ${err.message}`);
+      alert(`Could not save settings: ${err.message}`);
     }
-
-    settingsDialog.close();
-    renderVoiceOptions();
-    renderModels();
   });
 }
 
-function openSettings() {
+async function openSettings() {
+  let refreshed = true;
+  try {
+    await refreshSettingsFromServer();
+  } catch (err) {
+    refreshed = false;
+    console.warn("Could not refresh server settings", err);
+    updateSettingsSyncStatus(false, `Last sync failed: ${err.message}`);
+  }
   serverUrlInput.value = state.settings.serverUrl;
   speedInput.value = String(state.settings.speed);
+  volumeInput.value = String(state.settings.volume);
   downloadFormatSelect.value = normalizeDownloadFormat(state.settings.downloadFormat);
   darkModeInput.checked = state.settings.theme === "dark";
   autoPasteInput.checked = Boolean(state.settings.autoPasteClipboard);
@@ -1254,7 +1320,9 @@ function openSettings() {
   updateSpeedLabel();
   renderVoiceOptions();
   renderModels();
-  settingsDialog.showModal();
+  settingsPanel.classList.add("open");
+  settingsPanel.setAttribute("aria-hidden", "false");
+  if (refreshed) updateSettingsSyncStatus(true);
 }
 
 async function init() {

@@ -54,9 +54,10 @@
       </main>
     </div>
 
-    <dialog id="settingsDialog">
-      <form method="dialog" id="settingsForm" class="settings-form">
+    <aside id="settingsPanel" class="settings-panel" aria-label="Settings" aria-hidden="true">
+      <form id="settingsForm" class="settings-form">
         <h3>Settings</h3>
+        <small id="settingsSyncStatus" class="settings-sync-status">Last synced: not yet</small>
         <label>
           Server URL
           <input id="serverUrlInput" type="url" placeholder="Leave empty to use same host (/api)" />
@@ -145,11 +146,11 @@
         </section>
         <div class="settings-actions">
           <button value="test" type="button" id="testVoiceBtn">Test Voice</button>
-          <button value="cancel" type="button" id="cancelSettings">Cancel</button>
-          <button value="default" type="submit">Save</button>
+          <button type="button" id="closeSettings">Close</button>
+          <button type="submit">Save</button>
         </div>
       </form>
-    </dialog>
+    </aside>
 
     <script src="app.js"></script>
   </body>
