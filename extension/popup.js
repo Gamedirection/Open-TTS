@@ -29,8 +29,12 @@ function normalize(url) {
   return (url || "").trim().replace(/\/$/, "");
 }
 
+function normalizeServerUrl(url) {
+  return normalize(url).replace(/\/api$/i, "");
+}
+
 function deriveMainSiteUrl(serverUrl) {
-  const normalized = normalize(serverUrl);
+  const normalized = normalizeServerUrl(serverUrl);
   if (!normalized) return "http://localhost:3015";
   try {
     const url = new URL(normalized);
@@ -123,7 +127,7 @@ async function refreshUI() {
   if (autoPasteInput) autoPasteInput.checked = Boolean(settings.autoPasteClipboard);
 
   try {
-    const res = await fetch(`${normalize(settings.serverUrl)}/api/voices`);
+    const res = await fetch(`${normalizeServerUrl(settings.serverUrl)}/api/voices`);
     if (res.ok) {
       const data = await res.json();
       const voices = Array.isArray(data.voices) ? data.voices : [];
@@ -142,7 +146,7 @@ async function refreshUI() {
 }
 
 async function saveSettingsFromInputs() {
-  const serverUrl = normalize(serverUrlInput.value);
+  const serverUrl = normalizeServerUrl(serverUrlInput.value);
   const mainSiteUrl = normalize(mainSiteUrlInput?.value) || deriveMainSiteUrl(serverUrl);
   const voice = voiceSelect?.value || "";
   const speed = Number(speedInput?.value || 1);
@@ -168,7 +172,7 @@ async function saveSettingsFromInputs() {
 
 serverUrlInput.addEventListener("change", async () => {
   try {
-    const serverUrl = normalize(serverUrlInput.value);
+    const serverUrl = normalizeServerUrl(serverUrlInput.value);
     await setSettings({ serverUrl, mainSiteUrl: deriveMainSiteUrl(serverUrl) });
     status("Server saved.");
   } catch (err) {
@@ -303,7 +307,7 @@ configFileInput?.addEventListener("change", async () => {
     const text = await file.text();
     const parsed = JSON.parse(text);
     const imported = parsed.settings || {};
-    const serverUrl = normalize(imported.serverUrl || serverUrlInput.value || "");
+    const serverUrl = normalizeServerUrl(imported.serverUrl || serverUrlInput.value || "");
     const mainSiteUrl = normalize(imported.mainSiteUrl || mainSiteUrlInput?.value || deriveMainSiteUrl(serverUrl));
     const voice = String(imported.voice || "");
     const speed = Number(imported.speed ?? 1);

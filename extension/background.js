@@ -17,7 +17,7 @@ async function getSettings() {
     voice: "",
     speed: 1.0
   });
-  const serverUrl = normalizeUrl(data.serverUrl || "http://localhost:3016");
+  const serverUrl = normalizeServerUrl(data.serverUrl || "http://localhost:3016");
   const mainSiteUrl = normalizeUrl(data.mainSiteUrl || deriveMainSiteUrl(serverUrl));
   const remoteSettings = await getRemoteSettings(serverUrl);
   const merged = { ...data, ...remoteSettings, serverUrl, mainSiteUrl };
@@ -41,8 +41,12 @@ function normalizeUrl(url) {
   return (url || "").trim().replace(/\/$/, "");
 }
 
+function normalizeServerUrl(url) {
+  return normalizeUrl(url).replace(/\/api$/i, "");
+}
+
 function deriveMainSiteUrl(serverUrl) {
-  const normalized = normalizeUrl(serverUrl);
+  const normalized = normalizeServerUrl(serverUrl);
   if (!normalized) return "http://localhost:3015";
   try {
     const url = new URL(normalized);
@@ -55,7 +59,7 @@ function deriveMainSiteUrl(serverUrl) {
 
 async function getRemoteSettings(serverUrl) {
   try {
-    const res = await fetch(`${normalizeUrl(serverUrl)}/api/settings`);
+    const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/settings`);
     if (!res.ok) return {};
     const data = await res.json();
     return data && typeof data === "object" ? data : {};
@@ -73,7 +77,7 @@ async function putRemoteSettings(serverUrl, nextSettings) {
   }
   if (!Object.keys(payload).length) return {};
 
-  const res = await fetch(`${normalizeUrl(serverUrl)}/api/settings`, {
+  const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -88,7 +92,7 @@ async function putRemoteSettings(serverUrl, nextSettings) {
 
 async function appendHistory(serverUrl, entry) {
   try {
-    await fetch(`${normalizeUrl(serverUrl)}/api/history`, {
+    await fetch(`${normalizeServerUrl(serverUrl)}/api/history`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entry)
@@ -111,7 +115,7 @@ async function ensureContentScript(tabId) {
 }
 
 async function synthesize(text, serverUrl, voice, speed) {
-  const res = await fetch(`${normalizeUrl(serverUrl)}/api/speak`, {
+  const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/speak`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voice, speed })
@@ -123,7 +127,7 @@ async function synthesize(text, serverUrl, voice, speed) {
   const data = await res.json();
   const absoluteAudioUrl = data.audioUrl.startsWith("http")
     ? data.audioUrl
-    : `${normalizeUrl(serverUrl)}${data.audioUrl}`;
+    : `${normalizeServerUrl(serverUrl)}${data.audioUrl}`;
   return { audioUrl: absoluteAudioUrl };
 }
 
@@ -174,7 +178,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
       if (message?.type === "open_tts_set_settings") {
         const existing = await getSettings();
-        const serverUrl = normalizeUrl(message.serverUrl || existing.serverUrl || "http://localhost:3016");
+        const serverUrl = normalizeServerUrl(message.serverUrl || existing.serverUrl || "http://localhost:3016");
         const hasMainSiteUrl = typeof message.mainSiteUrl === "string" && message.mainSiteUrl.trim().length > 0;
         const mainSiteUrl = hasMainSiteUrl
           ? normalizeUrl(message.mainSiteUrl)
