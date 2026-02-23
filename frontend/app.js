@@ -38,9 +38,10 @@ const state = {
     serverUrl: "",
     voice: "",
     speed: 1.0,
+    prependSilenceMs: 350,
     volume: 1.0,
     downloadFormat: "wav",
-    theme: "light",
+    theme: "dark",
     autoPasteClipboard: false,
     hotkeys: { ...HOTKEY_DEFAULTS },
   },
@@ -59,6 +60,7 @@ const serverUrlInput = document.getElementById("serverUrlInput");
 const voiceSelect = document.getElementById("voiceSelect");
 const speedInput = document.getElementById("speedInput");
 const speedValue = document.getElementById("speedValue");
+const prependSilenceInput = document.getElementById("prependSilenceInput");
 const downloadFormatSelect = document.getElementById("downloadFormatSelect");
 const closeSettings = document.getElementById("closeSettings");
 const darkModeInput = document.getElementById("darkModeInput");
@@ -292,6 +294,7 @@ function getConfigForExport() {
       serverUrl: state.settings.serverUrl,
       voice: state.settings.voice,
       speed: state.settings.speed,
+      prependSilenceMs: state.settings.prependSilenceMs,
       volume: state.settings.volume,
       downloadFormat: state.settings.downloadFormat,
       theme: state.settings.theme,
@@ -306,6 +309,7 @@ function getSharedSettingsPayload() {
     serverUrl: state.settings.serverUrl,
     voice: state.settings.voice,
     speed: state.settings.speed,
+    prependSilenceMs: state.settings.prependSilenceMs,
     volume: state.settings.volume,
     downloadFormat: state.settings.downloadFormat,
     theme: state.settings.theme,
@@ -327,6 +331,7 @@ async function syncSettingsToServer() {
     ...saved,
     hotkeys: normalizeHotkeysObject(saved.hotkeys ?? state.settings.hotkeys),
   };
+  state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
   state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
   state.settings.volume = normalizeVolume(state.settings.volume);
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
@@ -394,6 +399,9 @@ async function importConfigFile(file) {
   state.settings.serverUrl = (importedSettings.serverUrl ?? state.settings.serverUrl ?? "").trim();
   state.settings.voice = importedSettings.voice ?? state.settings.voice;
   state.settings.speed = Number(importedSettings.speed ?? state.settings.speed ?? 1.0);
+  state.settings.prependSilenceMs = normalizePrependSilenceMs(
+    importedSettings.prependSilenceMs ?? state.settings.prependSilenceMs
+  );
   state.settings.volume = normalizeVolume(importedSettings.volume ?? state.settings.volume);
   state.settings.downloadFormat = normalizeDownloadFormat(importedSettings.downloadFormat ?? state.settings.downloadFormat);
   state.settings.theme = importedSettings.theme === "dark" ? "dark" : "light";
@@ -437,6 +445,7 @@ async function refreshSettingsFromServer() {
     ...remoteSettings,
     hotkeys: normalizeHotkeysObject(remoteSettings.hotkeys ?? state.settings.hotkeys),
   };
+  state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
   state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
   state.settings.volume = normalizeVolume(state.settings.volume);
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
@@ -474,6 +483,12 @@ function getApiBase() {
 
 function normalizeDownloadFormat(value) {
   return ["wav", "mp3", "ogg"].includes(value) ? value : "wav";
+}
+
+function normalizePrependSilenceMs(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return 350;
+  return Math.max(0, Math.min(3000, Math.round(n)));
 }
 
 function absoluteAudioUrl(audioUrl) {
@@ -1281,6 +1296,7 @@ function bindEvents() {
     state.settings.serverUrl = (serverUrlInput.value || "").trim().replace(/\/$/, "");
     state.settings.voice = voiceSelect.value;
     state.settings.speed = Number(speedInput.value);
+    state.settings.prependSilenceMs = normalizePrependSilenceMs(prependSilenceInput.value);
     state.settings.downloadFormat = normalizeDownloadFormat(downloadFormatSelect.value);
     state.settings.theme = darkModeInput.checked ? "dark" : "light";
     state.settings.autoPasteClipboard = autoPasteInput.checked;
@@ -1312,6 +1328,7 @@ async function openSettings() {
   }
   serverUrlInput.value = state.settings.serverUrl;
   speedInput.value = String(state.settings.speed);
+  prependSilenceInput.value = String(normalizePrependSilenceMs(state.settings.prependSilenceMs));
   volumeInput.value = String(state.settings.volume);
   downloadFormatSelect.value = normalizeDownloadFormat(state.settings.downloadFormat);
   darkModeInput.checked = state.settings.theme === "dark";
@@ -1329,9 +1346,10 @@ async function init() {
   loadLocalState();
   await loadRemoteState();
   if (state.settings.theme !== "dark" && state.settings.theme !== "light") {
-    state.settings.theme = "light";
+    state.settings.theme = "dark";
   }
   state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
+  state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
   state.settings.volume = normalizeVolume(state.settings.volume);
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(state.settings.hotkeys);
@@ -1342,6 +1360,7 @@ async function init() {
 
   serverUrlInput.value = state.settings.serverUrl;
   speedInput.value = String(state.settings.speed);
+  prependSilenceInput.value = String(state.settings.prependSilenceMs);
   volumeInput.value = String(state.settings.volume);
   updateVolumeLabel();
   updateSpeedLabel();

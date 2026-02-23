@@ -4,7 +4,7 @@ const SHARED_KEYS = ["voice", "speed", "volume", "downloadFormat", "theme", "aut
 async function getSettings() {
   const data = await chrome.storage.sync.get({
     serverUrl: "http://localhost:3016",
-    theme: "light",
+    theme: "dark",
     voice: "",
     speed: 1.0,
     volume: 1.0,

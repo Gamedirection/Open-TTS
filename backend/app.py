@@ -101,9 +101,10 @@ DEFAULT_SETTINGS = {
     "speed": 1.0,
     "volume": 1.0,
     "downloadFormat": "wav",
-    "theme": "light",
+    "theme": "dark",
     "autoPasteClipboard": False,
     "hotkeys": {},
+    "prependSilenceMs": PREPEND_SILENCE_MS,
 }
 
 
@@ -132,6 +133,11 @@ def normalize_settings(data: dict) -> dict:
     merged["theme"] = "dark" if str(merged.get("theme") or "").lower() == "dark" else "light"
     merged["autoPasteClipboard"] = bool(merged.get("autoPasteClipboard"))
     merged["hotkeys"] = merged.get("hotkeys") if isinstance(merged.get("hotkeys"), dict) else {}
+    try:
+        silence_ms = int(merged.get("prependSilenceMs", PREPEND_SILENCE_MS))
+    except (TypeError, ValueError):
+        silence_ms = PREPEND_SILENCE_MS
+    merged["prependSilenceMs"] = max(0, min(silence_ms, 3000))
     return merged
 
 
@@ -702,6 +708,8 @@ def speak():
     text = (body.get("text") or "").strip()
     voice = (body.get("voice") or DEFAULT_VOICE).strip()
     speed = float(body.get("speed") or 1.0)
+    current_settings = load_settings()
+    silence_ms = int(current_settings.get("prependSilenceMs", PREPEND_SILENCE_MS))
 
     if not text:
         return jsonify({"error": "text is required"}), 400
@@ -756,7 +764,7 @@ def speak():
             return jsonify({"error": "piper synthesis timed out"}), 504
 
     try:
-        prepend_wav_silence(output_path, PREPEND_SILENCE_MS)
+        prepend_wav_silence(output_path, silence_ms)
     except Exception as exc:
         # Do not fail synthesis when silence prepend fails.
         print(f"[open-tts] warning: could not prepend silence: {exc}")
