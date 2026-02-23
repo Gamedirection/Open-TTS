@@ -142,7 +142,9 @@ settingsBtn.addEventListener("click", async () => {
   try {
     const settings = await getSettings();
     const settingsUrl = normalize(settings.mainSiteUrl) || deriveMainSiteUrl(settings.serverUrl);
-    await chrome.tabs.create({ url: settingsUrl });
+    const url = new URL(settingsUrl);
+    url.searchParams.set("openSettings", "1");
+    await chrome.tabs.create({ url: url.toString() });
   } catch (err) {
     status(`Could not open settings: ${err.message}`);
   }

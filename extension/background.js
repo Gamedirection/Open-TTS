@@ -3,12 +3,25 @@ const MENU_ID = "open_tts_read_selection";
 async function getSettings() {
   const data = await chrome.storage.sync.get({
     serverUrl: "http://localhost:3016",
-    mainSiteUrl: "http://localhost:3015"
+    mainSiteUrl: "http://localhost:3015",
+    theme: "light",
+    voice: "",
+    speed: 1.0
   });
   const serverUrl = normalizeUrl(data.serverUrl || "http://localhost:3016");
   const mainSiteUrl = normalizeUrl(data.mainSiteUrl || deriveMainSiteUrl(serverUrl));
   const remoteSettings = await getRemoteSettings(serverUrl);
-  return { ...remoteSettings, serverUrl, mainSiteUrl };
+  const merged = { ...data, ...remoteSettings, serverUrl, mainSiteUrl };
+  const normalizedTheme = String(merged.theme || "light").toLowerCase() === "dark" ? "dark" : "light";
+  merged.theme = normalizedTheme;
+  if (remoteSettings && Object.keys(remoteSettings).length) {
+    await chrome.storage.sync.set({
+      theme: merged.theme,
+      voice: merged.voice || "",
+      speed: Number(merged.speed || 1.0)
+    });
+  }
+  return merged;
 }
 
 function normalizeUrl(url) {
@@ -131,8 +144,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const mainSiteUrl = hasMainSiteUrl
           ? normalizeUrl(message.mainSiteUrl)
           : deriveMainSiteUrl(serverUrl);
-        await chrome.storage.sync.set({ serverUrl, mainSiteUrl });
-        sendResponse({ ok: true, serverUrl, mainSiteUrl });
+        const theme = message.theme || existing.theme || "light";
+        await chrome.storage.sync.set({ serverUrl, mainSiteUrl, theme });
+        sendResponse({ ok: true, serverUrl, mainSiteUrl, theme });
         return;
       }
       if (message?.type === "open_tts_speak") {

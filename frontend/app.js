@@ -1289,6 +1289,11 @@ async function init() {
   render();
   textInput.focus();
   textInput.select();
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("openSettings") === "1") {
+    openSettings();
+  }
 }
 
 init();
