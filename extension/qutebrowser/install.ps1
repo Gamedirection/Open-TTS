@@ -1,5 +1,8 @@
 param(
     [string]$ApiUrl = "",
+    [string]$Voice = "",
+    [string]$Speed = "",
+    [string]$Volume = "",
     [switch]$Force
 )
 
@@ -39,14 +42,19 @@ foreach ($file in $files) {
     Write-Host "Installed userscript: $dst"
 }
 
-if ($ApiUrl) {
-    $cmdPath = Join-Path $userscriptsDir "open-tts.cmd"
+$cmdPath = Join-Path $userscriptsDir "open-tts.cmd"
+if ($ApiUrl -or $Voice -or $Speed -or $Volume) {
     if ((Test-Path $cmdPath) -and (-not $Force)) {
-        Write-Host "OPEN_TTS_API not set in open-tts.cmd because it already exists. Edit it manually if needed."
+        Write-Host "Defaults not set in open-tts.cmd because it already exists. Edit it manually or re-run with -Force."
     } else {
-        $cmd = "@echo off`r`nset \"OPEN_TTS_API=$ApiUrl\"`r`npython `\"%~dp0open-tts.py`\" %*`r`n"
-        Set-Content -Path $cmdPath -Value $cmd -Encoding ASCII
-        Write-Host "Configured OPEN_TTS_API in open-tts.cmd."
+        $lines = @("@echo off")
+        if ($ApiUrl) { $lines += "set \"OPEN_TTS_API=$ApiUrl\"" }
+        if ($Voice) { $lines += "set \"OPEN_TTS_VOICE=$Voice\"" }
+        if ($Speed) { $lines += "set \"OPEN_TTS_SPEED=$Speed\"" }
+        if ($Volume) { $lines += "set \"OPEN_TTS_VOLUME=$Volume\"" }
+        $lines += "python `\"%~dp0open-tts.py`\" %*"
+        Set-Content -Path $cmdPath -Value ($lines -join "`r`n") -Encoding ASCII
+        Write-Host "Configured defaults in open-tts.cmd."
     }
 }
 

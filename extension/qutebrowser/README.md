@@ -24,6 +24,9 @@ Linux
 2. Ensure it is executable.
 3. Add the `config.py` snippet to your qutebrowser `config.py`.
 
+Linux overrides can be passed as userscript arguments:
+`--voice`, `--speed`, `--volume` (see examples in `config.py`).
+
 Windows
 1. Run the installer from PowerShell:
 
@@ -46,6 +49,20 @@ To target a different server, set `OPEN_TTS_API` in `open-tts.cmd` or pass
 ```powershell
 .\install.ps1 -ApiUrl "http://100.106.163.87:3016/api/speak"
 ```
+
+You can also set defaults for voice, speed, and volume by passing:
+
+```powershell
+.\install.ps1 -Voice "en_US-lessac-medium" -Speed "1.1" -Volume "0.8"
+```
+
+Or by setting these environment variables in `open-tts.cmd`:
+- `OPEN_TTS_VOICE`
+- `OPEN_TTS_SPEED`
+- `OPEN_TTS_VOLUME`
+
+You can also pass these as userscript arguments in bindings:
+`--voice`, `--speed`, `--volume`.
 
 The installer does not overwrite existing `config.py` content; it appends a
 small binding block if it is not already present. It also skips copying

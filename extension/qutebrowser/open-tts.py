@@ -7,6 +7,9 @@ import urllib.parse
 import urllib.request
 
 API_URL = os.environ.get("OPEN_TTS_API", "http://localhost:3016/api/speak")
+DEFAULT_VOICE = os.environ.get("OPEN_TTS_VOICE", "")
+DEFAULT_SPEED = os.environ.get("OPEN_TTS_SPEED", "")
+DEFAULT_VOLUME = os.environ.get("OPEN_TTS_VOLUME", "")
 
 
 def _qute_message(text: str) -> None:
@@ -35,16 +38,50 @@ def _play_wav_sync(data: bytes) -> bool:
         return False
 
 
+def _parse_args(argv):
+    voice = DEFAULT_VOICE
+    speed = DEFAULT_SPEED
+    volume = DEFAULT_VOLUME
+    use_page = False
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--page":
+            use_page = True
+        elif arg == "--voice" and i + 1 < len(argv):
+            voice = argv[i + 1]
+            i += 1
+        elif arg == "--speed" and i + 1 < len(argv):
+            speed = argv[i + 1]
+            i += 1
+        elif arg == "--volume" and i + 1 < len(argv):
+            volume = argv[i + 1]
+            i += 1
+        i += 1
+
+    return use_page, voice, speed, volume
+
+
 def main() -> int:
+    use_page, voice, speed, volume = _parse_args(sys.argv[1:])
     text = os.environ.get("QUTE_SELECTED_TEXT", "")
-    if len(sys.argv) > 1 and sys.argv[1] == "--page":
+    if use_page:
         text = os.environ.get("QUTE_URL", "")
 
     if not text:
         _qute_message("message-info 'Open-TTS: no selected text.'")
         return 0
 
-    payload = json.dumps({"text": text}).encode("utf-8")
+    payload_obj = {"text": text}
+    if voice:
+        payload_obj["voice"] = voice
+    if speed:
+        payload_obj["speed"] = speed
+    if volume:
+        payload_obj["volume"] = volume
+
+    payload = json.dumps(payload_obj).encode("utf-8")
     req = urllib.request.Request(API_URL, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
