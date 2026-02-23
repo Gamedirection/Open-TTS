@@ -284,9 +284,12 @@ textarea {
   box-shadow: -12px 0 24px rgba(0, 0, 0, 0.18);
   transform: translateX(100%);
   transition: transform 0.2s ease;
-  overflow-y: auto;
   z-index: 20;
   padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: hidden;
 }
 
 .settings-panel.open {
@@ -296,7 +299,9 @@ textarea {
 .settings-form {
   display: grid;
   gap: 0.75rem;
-  padding-bottom: 5.5rem;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .settings-sync-status {
@@ -442,11 +447,7 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
-  position: fixed;
-  right: 1rem;
-  bottom: 0.75rem;
-  z-index: 30;
-  width: calc(min(520px, 96vw) - 2rem);
+  flex: 0 0 auto;
   padding: 0.55rem 0.7rem;
   background: color-mix(in srgb, var(--panel) 96%, transparent 4%);
   border: 1px solid color-mix(in srgb, var(--border) 85%, transparent 15%);
@@ -493,7 +494,4 @@ textarea {
     border-left: 0;
   }
 
-  .settings-actions {
-    width: calc(100vw - 2rem);
-  }
 }
