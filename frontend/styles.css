@@ -441,6 +441,13 @@ textarea {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 0.5rem;
+  padding: 0.7rem 0 0.3rem;
+  background: linear-gradient(to top, var(--panel) 72%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%);
 }
 
 .settings-actions #closeSettings {

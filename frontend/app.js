@@ -72,6 +72,8 @@ const loadingIndicator = document.getElementById("loadingIndicator");
 const speakButton = document.getElementById("speakStopBtn");
 const volumeInput = document.getElementById("volumeInput");
 const volumeValue = document.getElementById("volumeValue");
+const settingsVolumeInput = document.getElementById("settingsVolumeInput");
+const settingsVolumeValue = document.getElementById("settingsVolumeValue");
 const downloadConfigBtn = document.getElementById("downloadConfigBtn");
 const uploadConfigBtn = document.getElementById("uploadConfigBtn");
 const configFileInput = document.getElementById("configFileInput");
@@ -154,7 +156,10 @@ function normalizeVolume(value) {
 }
 
 function updateVolumeLabel() {
-  volumeValue.textContent = `${Math.round(normalizeVolume(volumeInput.value) * 100)}%`;
+  const normalized = normalizeVolume(state.settings.volume);
+  const label = `${Math.round(normalized * 100)}%`;
+  volumeValue.textContent = label;
+  if (settingsVolumeValue) settingsVolumeValue.textContent = label;
 }
 
 function applyVolumeToCurrentAudio() {
@@ -1229,10 +1234,20 @@ function bindEvents() {
   closeSettings.addEventListener("click", closeSettingsPanel);
   volumeInput.addEventListener("input", () => {
     state.settings.volume = normalizeVolume(volumeInput.value);
+    if (settingsVolumeInput) settingsVolumeInput.value = String(state.settings.volume);
     updateVolumeLabel();
     applyVolumeToCurrentAudio();
   });
   volumeInput.addEventListener("change", () => {
+    saveSettings();
+  });
+  settingsVolumeInput?.addEventListener("input", () => {
+    state.settings.volume = normalizeVolume(settingsVolumeInput.value);
+    volumeInput.value = String(state.settings.volume);
+    updateVolumeLabel();
+    applyVolumeToCurrentAudio();
+  });
+  settingsVolumeInput?.addEventListener("change", () => {
     saveSettings();
   });
   downloadConfigBtn.addEventListener("click", downloadConfig);
@@ -1309,6 +1324,7 @@ function bindEvents() {
     state.settings.voice = voiceSelect.value;
     state.settings.speed = Number(speedInput.value);
     state.settings.prependSilenceMs = normalizePrependSilenceMs(prependSilenceInput.value);
+    state.settings.volume = normalizeVolume(settingsVolumeInput?.value ?? volumeInput.value);
     state.settings.downloadFormat = normalizeDownloadFormat(downloadFormatSelect.value);
     state.settings.theme = darkModeInput.checked ? "dark" : "light";
     state.settings.autoPasteClipboard = autoPasteInput.checked;
@@ -1342,6 +1358,7 @@ async function openSettings() {
   speedInput.value = String(state.settings.speed);
   prependSilenceInput.value = String(normalizePrependSilenceMs(state.settings.prependSilenceMs));
   volumeInput.value = String(state.settings.volume);
+  if (settingsVolumeInput) settingsVolumeInput.value = String(state.settings.volume);
   downloadFormatSelect.value = normalizeDownloadFormat(state.settings.downloadFormat);
   darkModeInput.checked = state.settings.theme === "dark";
   autoPasteInput.checked = Boolean(state.settings.autoPasteClipboard);
@@ -1374,6 +1391,7 @@ async function init() {
   speedInput.value = String(state.settings.speed);
   prependSilenceInput.value = String(state.settings.prependSilenceMs);
   volumeInput.value = String(state.settings.volume);
+  if (settingsVolumeInput) settingsVolumeInput.value = String(state.settings.volume);
   updateVolumeLabel();
   updateSpeedLabel();
   updateComposerActionButton();

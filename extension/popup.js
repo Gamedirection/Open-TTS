@@ -7,8 +7,11 @@ const statusEl = document.getElementById("status");
 const settingsPanel = document.getElementById("settingsPanel");
 const voiceSelect = document.getElementById("voiceSelect");
 const speedInput = document.getElementById("speedInput");
+const speedValue = document.getElementById("speedValue");
 const volumeInput = document.getElementById("volumeInput");
+const volumeValue = document.getElementById("volumeValue");
 const prependSilenceInput = document.getElementById("prependSilenceInput");
+const prependSilenceValue = document.getElementById("prependSilenceValue");
 const downloadFormatInput = document.getElementById("downloadFormatInput");
 const themeInput = document.getElementById("themeInput");
 const autoPasteInput = document.getElementById("autoPasteInput");
@@ -49,6 +52,30 @@ function normalizeServerUrl(url) {
 function applyTheme(theme) {
   const next = theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-theme", next);
+}
+
+function normalizeVolume(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return 1;
+  return Math.max(0, Math.min(1, n));
+}
+
+function normalizeSpeed(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return 1;
+  return Math.max(0.5, Math.min(2, n));
+}
+
+function normalizePrependSilence(value) {
+  const n = Number(value);
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(3000, Math.round(n)));
+}
+
+function updateSliderLabels() {
+  if (speedValue) speedValue.textContent = `${normalizeSpeed(speedInput?.value).toFixed(1)}x`;
+  if (volumeValue) volumeValue.textContent = `${Math.round(normalizeVolume(volumeInput?.value) * 100)}%`;
+  if (prependSilenceValue) prependSilenceValue.textContent = `${normalizePrependSilence(prependSilenceInput?.value)}ms`;
 }
 
 async function getSettings() {
@@ -155,12 +182,13 @@ async function refreshUI() {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   applyTheme(settings.theme);
-  if (speedInput) speedInput.value = String(Number(settings.speed || 1.0));
-  if (volumeInput) volumeInput.value = String(Number(settings.volume ?? 1.0));
-  if (prependSilenceInput) prependSilenceInput.value = String(Number(settings.prependSilenceMs ?? 0));
+  if (speedInput) speedInput.value = String(normalizeSpeed(settings.speed ?? 1.0));
+  if (volumeInput) volumeInput.value = String(normalizeVolume(settings.volume ?? 1.0));
+  if (prependSilenceInput) prependSilenceInput.value = String(normalizePrependSilence(settings.prependSilenceMs ?? 0));
   if (downloadFormatInput) downloadFormatInput.value = ["wav", "mp3", "ogg"].includes(settings.downloadFormat) ? settings.downloadFormat : "wav";
   if (themeInput) themeInput.value = settings.theme === "dark" ? "dark" : "light";
   if (autoPasteInput) autoPasteInput.checked = Boolean(settings.autoPasteClipboard);
+  updateSliderLabels();
 
   try {
     const res = await fetch(`${normalizeServerUrl(settings.serverUrl)}/api/voices`);
@@ -185,9 +213,9 @@ async function refreshUI() {
 async function saveSettingsFromInputs() {
   const serverUrl = normalizeServerUrl(serverUrlInput.value);
   const voice = voiceSelect?.value || "";
-  const speed = Number(speedInput?.value || 1);
-  const volume = Number(volumeInput?.value ?? 1);
-  const prependSilenceMs = Math.max(0, Math.min(3000, Number(prependSilenceInput?.value ?? 0) || 0));
+  const speed = normalizeSpeed(speedInput?.value ?? 1);
+  const volume = normalizeVolume(volumeInput?.value ?? 1);
+  const prependSilenceMs = normalizePrependSilence(prependSilenceInput?.value ?? 0);
   const downloadFormat = ["wav", "mp3", "ogg"].includes(downloadFormatInput?.value) ? downloadFormatInput.value : "wav";
   const theme = themeInput?.value === "dark" ? "dark" : "light";
   const autoPasteClipboard = Boolean(autoPasteInput?.checked);
@@ -321,9 +349,9 @@ configFileInput?.addEventListener("change", async () => {
     const imported = parsed.settings || {};
     const serverUrl = normalizeServerUrl(imported.serverUrl || serverUrlInput.value || "");
     const voice = String(imported.voice || "");
-    const speed = Number(imported.speed ?? 1);
-    const volume = Number(imported.volume ?? 1);
-    const prependSilenceMs = Math.max(0, Math.min(3000, Number(imported.prependSilenceMs ?? 0) || 0));
+    const speed = normalizeSpeed(imported.speed ?? 1);
+    const volume = normalizeVolume(imported.volume ?? 1);
+    const prependSilenceMs = normalizePrependSilence(imported.prependSilenceMs ?? 0);
     const downloadFormat = ["wav", "mp3", "ogg"].includes(imported.downloadFormat) ? imported.downloadFormat : "wav";
     const theme = imported.theme === "dark" ? "dark" : "light";
     const autoPasteClipboard = Boolean(imported.autoPasteClipboard);
@@ -348,6 +376,10 @@ configFileInput?.addEventListener("change", async () => {
     configFileInput.value = "";
   }
 });
+
+speedInput?.addEventListener("input", updateSliderLabels);
+volumeInput?.addEventListener("input", updateSliderLabels);
+prependSilenceInput?.addEventListener("input", updateSliderLabels);
 
 async function init() {
   try {

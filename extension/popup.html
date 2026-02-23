@@ -43,6 +43,33 @@
       .tiny { font-size: 11px; color: var(--muted); }
       .field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
       .field input, .field select { color: var(--text); font-size: 14px; }
+      .range-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+      .range-row output { color: var(--muted); font-size: 12px; min-width: 44px; text-align: right; }
+      .toggle-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+      .toggle-switch { position: relative; width: 44px; height: 24px; display: inline-block; }
+      .toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .toggle-slider {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--border) 75%, var(--panel) 25%);
+        transition: background 0.2s ease;
+      }
+      .toggle-slider::before {
+        content: "";
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        left: 2px;
+        top: 2px;
+        border-radius: 999px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        transition: transform 0.2s ease;
+      }
+      .toggle-switch input:checked + .toggle-slider { background: var(--speak); }
+      .toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
     </style>
   </head>
   <body>
@@ -59,13 +86,22 @@
           <select id="voiceSelect"></select>
         </label>
         <label class="field">Playback Speed
-          <input id="speedInput" type="number" min="0.5" max="2" step="0.1" placeholder="1.0" />
+          <div class="range-row">
+            <input id="speedInput" type="range" min="0.5" max="2" step="0.1" />
+            <output id="speedValue">1.0x</output>
+          </div>
         </label>
         <label class="field">Playback Audio Volume
-          <input id="volumeInput" type="number" min="0" max="1" step="0.1" placeholder="1.0" />
+          <div class="range-row">
+            <input id="volumeInput" type="range" min="0" max="1" step="0.01" />
+            <output id="volumeValue">100%</output>
+          </div>
         </label>
         <label class="field">Startup Silence (ms)
-          <input id="prependSilenceInput" type="number" min="0" max="3000" step="50" placeholder="0" />
+          <div class="range-row">
+            <input id="prependSilenceInput" type="range" min="0" max="3000" step="50" />
+            <output id="prependSilenceValue">0ms</output>
+          </div>
         </label>
         <label class="field">Default Download Format
           <select id="downloadFormatInput">
@@ -80,7 +116,13 @@
             <option value="dark">dark</option>
           </select>
         </label>
-        <label><input id="autoPasteInput" type="checkbox" /> Auto-paste clipboard on input focus</label>
+        <label class="toggle-row" for="autoPasteInput">
+          <span>Auto-paste clipboard on input focus</span>
+          <span class="toggle-switch">
+            <input id="autoPasteInput" type="checkbox" />
+            <span class="toggle-slider" aria-hidden="true"></span>
+          </span>
+        </label>
         <div class="settings-actions">
           <button class="btn speak" id="saveSettingsBtn">Save</button>
           <button class="btn speak" id="testVoiceBtn">Test Voice</button>
