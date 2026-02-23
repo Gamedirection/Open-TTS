@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Open-TTS API",
-    "version": "0.3.0",
-    "description": "API for Piper-based text-to-speech, voice management, and audio downloads."
+    "version": "0.4.0",
+    "description": "API for Open-TTS voice synthesis, settings, history, and audio downloads. Supports Piper and Supertonic voice IDs."
   },
   "servers": [
     {
@@ -21,9 +21,96 @@
         }
       }
     },
+    "/api/settings": {
+      "get": {
+        "summary": "Read shared app settings",
+        "responses": {
+          "200": {
+            "description": "Settings payload"
+          }
+        }
+      },
+      "put": {
+        "summary": "Write shared app settings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "voice": { "type": "string" },
+                  "speed": { "type": "number" },
+                  "volume": { "type": "number" },
+                  "downloadFormat": { "type": "string", "enum": ["wav", "mp3", "ogg"] },
+                  "theme": { "type": "string", "enum": ["light", "dark"] },
+                  "autoPasteClipboard": { "type": "boolean" },
+                  "prependSilenceMs": { "type": "integer", "minimum": 0, "maximum": 3000 },
+                  "hotkeys": { "type": "object" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Settings saved"
+          }
+        }
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Read shared history",
+        "responses": {
+          "200": {
+            "description": "History payload"
+          }
+        }
+      },
+      "put": {
+        "summary": "Replace shared history",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "History saved"
+          }
+        }
+      },
+      "post": {
+        "summary": "Append one history entry",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Entry added"
+          }
+        }
+      }
+    },
     "/api/voices": {
       "get": {
-        "summary": "List installed voices and catalog",
+        "summary": "List installed voices and full catalog",
         "responses": {
           "200": {
             "description": "Voices payload"
@@ -40,12 +127,11 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "voice"
-                ],
+                "required": ["voice"],
                 "properties": {
                   "voice": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Piper ID (e.g. en_US-ryan-high) or Supertonic ID (e.g. supertonic:en:M1)"
                   }
                 }
               }
@@ -88,19 +174,14 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": [
-                  "text"
-                ],
+                "required": ["text"],
                 "properties": {
-                  "text": {
-                    "type": "string"
-                  },
+                  "text": { "type": "string" },
                   "voice": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Piper ID or Supertonic ID"
                   },
-                  "speed": {
-                    "type": "number"
-                  }
+                  "speed": { "type": "number" }
                 }
               }
             }
@@ -151,11 +232,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "enum": [
-                "wav",
-                "mp3",
-                "ogg"
-              ]
+              "enum": ["wav", "mp3", "ogg"]
             }
           }
         ],

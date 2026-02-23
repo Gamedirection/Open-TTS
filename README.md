@@ -1,158 +1,118 @@
 # Open-TTS
 
-Chat-style local text-to-speech app powered by Piper, with history, pinning, downloads, keyboard controls, and Docker/Swarm deployment.
+Open-TTS is a Docker-first text-to-speech service and web UI with chat-style playback, voice management, downloads, and browser extension support.
 
 ## Version
-- Current app version: `0.3.0`
+- Current app version: `0.4.0`
 - See `CHANGELOG.md` for release history.
 
-## Features
-- Chat-like TTS workflow (submit text, auto-generate audio, replay).
-- Single-entry multiline sequencing (lines are read one-by-one in order).
-- Playback queue: no overlapping audio; new requests wait their turn.
-- Stop playback (`Stop` button, `Esc`, configurable hotkey).
-- Word highlight + visualizer while audio plays.
-- Local history and pinned sidebar (browser `localStorage`).
-- Download audio as `wav`, `mp3`, or `ogg`.
-- Voice model management (install/uninstall catalog voices).
-- Settings for server URL, voice, speed, theme, volume, hotkeys.
-- Config export/import (JSON).
-- Bulk delete actions (pinned / unpinned) with confirmation.
-- Browser extension (Chrome + Firefox) with popup speak/stop and context-menu read.
+## Highlights
+- Web UI with history, pinning, downloads, and keyboard shortcuts.
+- Queue-based playback to avoid overlap.
+- Voice providers:
+- Piper voices (model-based).
+- Supertonic voices (provider-based).
+- Configurable startup silence (`prependSilenceMs`) to avoid clipped first words.
+- Dark mode default.
+- Browser extension (Chrome + Firefox) with popup controls and context-menu readout.
 
-## Runtime Dependencies
+## Requirements
+- Docker Engine with Docker Compose plugin.
+- Network access from containers for model downloads (Piper/Supertonic) if models are not already cached.
 
-### Host dependencies
-- Docker Engine (with Compose plugin)
-- For Swarm mode: Docker Swarm initialized on the target node
+## Install And Setup (Docker Compose)
+1. Clone and enter the repo.
 
-### Container dependencies
-- Backend:
-  - Python 3.11
-  - `Flask`, `flask-cors`, `requests`, `piper-tts`
-  - `ffmpeg` (for mp3/ogg conversion)
-- Frontend:
-  - Nginx serving static UI and reverse-proxying `/api`
-- Swagger UI service:
-  - `swaggerapi/swagger-ui`
+```bash
+git clone https://github.com/Gamedirection/Open-TTS.git
+cd Open-TTS
+```
 
-## Project Structure
-- `backend/` API + Piper integration
-- `frontend/` static web app
-- `extension/` browser extension source (Chrome + Firefox)
-- `docker-compose.yml` local Compose deployment (includes Swagger UI service)
-- `docker-compose.swarm.yml` Docker Swarm stack file
-- `.env` local environment values
-- `.env.example` template values for new users
-- `CHANGELOG.md` release notes
-
-## Environment Configuration
-Copy from template if needed:
+2. Create local env file.
 
 ```bash
 cp .env.example .env
 ```
 
-Key variables:
-- `WEB_PORT` default `3015`
-- `API_PORT` default `3016`
-- `SWAGGER_PORT` default `3017`
-- `WEB_IMAGE`, `API_IMAGE`
-- `PIPER_DEFAULT_VOICE`, `PIPER_DEFAULT_VOICE_BASE`, `PIPER_TIMEOUT_SECONDS`
-
-## Local Deployment (Docker Compose)
-
-Build and start:
+3. Start services.
 
 ```bash
 docker compose up -d --build
 ```
 
-Check status:
+4. Verify services.
 
 ```bash
 docker compose ps
+curl http://localhost:3016/api/health
 ```
 
-Stop:
+5. Open the app.
+- UI: `http://localhost:3015`
+- API health: `http://localhost:3016/api/health`
+- Swagger UI: `http://localhost:3017`
+
+## Upgrade Or Redeploy
+Use this after pulling updates:
 
 ```bash
-docker compose down
+git pull --rebase
+docker compose up -d --build
 ```
 
-## Docker Swarm Deployment
+## First-Install Voice Behavior
+On a fresh install, preinstalled voices are intentionally limited to:
+- Piper: `en_US-lessac-medium`
+- Piper: `en_US-ryan-high`
+- Supertonic: `supertonic:en:M1`
+- Supertonic: `supertonic:en:F1`
 
-1. Build images on the target node:
+Existing deployments are preserved and are not force-pruned.
+Users can install additional voices later from the UI or API.
 
-```bash
-docker build -t tts-api:local ./backend
-docker build -t tts-web:local ./frontend
-```
+## Settings Notes
+Shared app settings are served by `GET/PUT /api/settings`.
+Current defaults include:
+- `theme`: `dark`
+- `prependSilenceMs`: `350`
 
-2. Initialize swarm (once):
+`prependSilenceMs` is applied as dead air at the start of generated WAV output.
+Range: `0` to `3000` ms.
 
-```bash
-docker swarm init
-```
+## Browser Extension
+Extension source is in `extension/`.
 
-3. Deploy stack:
-
-```bash
-docker stack deploy -c docker-compose.swarm.yml tts
-```
-
-4. Verify:
-
-```bash
-docker stack services tts
-```
-
-5. Remove:
-
-```bash
-docker stack rm tts
-```
-
-## Access URLs
-- Main UI: `http://localhost:3015`
-- Backend API health: `http://localhost:3016/api/health`
-- In-app Swagger UI (served by API): `http://localhost:3015/api/docs`
-- OpenAPI JSON (dynamic): `http://localhost:3015/api/openapi.json`
-- Standalone Swagger UI service (Compose/Swarm): `http://localhost:3017`
-
-## Browser Extension (Chrome + Firefox)
-
-Extension source lives in `extension/` and provides:
-- popup UI with:
-  - server URL input
-  - last generated entry display
-  - submission box
-  - `Speak` and `Stop` controls
-  - `Settings` button that opens main Open-TTS site
-- context menu:
-  - highlight any text in browser
-  - right-click: `Read selected text with Open-TTS`
-
-### Load in Chrome
+### Install In Chrome
 1. Open `chrome://extensions`.
 2. Enable `Developer mode`.
 3. Click `Load unpacked`.
 4. Select the `extension/` folder.
 
-### Load in Firefox
+### Install In Firefox
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click `Load Temporary Add-on...`.
 3. Select `extension/manifest.json`.
 
-### Extension Notes
-- Default server URL is `http://localhost:3016`.
-- Default settings URL opens `http://localhost:3015`.
-- Context-menu playback is queued in-page to avoid overlapping speech.
+### Configure Extension
+1. Open extension popup.
+2. Set server URL to your API host, for example:
+- `http://localhost:3016`
+- `http://<server-ip>:3016`
+3. Open extension Settings panel and choose playback voice/speed/volume.
+4. Save settings.
+
+Notes:
+- Extension settings are local to the extension.
+- Extension can auto-paste clipboard and auto-speak on popup open when enabled.
 
 ## API Overview
-
 Core endpoints:
 - `GET /api/health`
+- `GET /api/settings`
+- `PUT /api/settings`
+- `GET /api/history`
+- `PUT /api/history`
+- `POST /api/history`
 - `GET /api/voices`
 - `POST /api/voices/install`
 - `DELETE /api/voices/{voice_id}`
@@ -163,13 +123,33 @@ Core endpoints:
 - `GET /api/docs`
 
 Use either:
-- direct API port (`3016`) for programmatic clients, or
-- proxied route (`/api`) via web port (`3015`) for browser use.
+- Direct API port (`3016`) for API clients, or
+- Proxied route via web port (`3015`) using `/api/*`.
 
-## Notes
-- On first run, default voice model files are downloaded automatically.
-- Voice and audio artifacts persist in Docker volumes:
-  - `piper_voices`
-  - `piper_audio`
-- Browser-side state (history/settings/pins/hotkeys/config) is stored in `localStorage`.
-- `.env` can contain local/private deployment values; keep it private in shared/public repos.
+## Production Checklist
+- [ ] Pin and review image/base dependency versions.
+- [ ] Set stable `.env` values for `WEB_PORT`, `API_PORT`, `SWAGGER_PORT`.
+- [ ] Put TLS and auth in front of UI/API.
+- [ ] Restrict CORS and host exposure to required origins only.
+- [ ] Persist Docker volumes and back up state/voice/audio data.
+- [ ] Confirm `prependSilenceMs` and voice defaults match requirements.
+- [ ] Add container health checks and restart policies.
+- [ ] Monitor logs and disk growth for `/data/audio`.
+- [ ] Test upgrade path on staging before production rollout.
+
+## Dev Update Checklist
+- [ ] Pull latest `main` and rebase local branch.
+- [ ] Run local syntax checks and targeted tests.
+- [ ] Update `CHANGELOG.md` for user-visible behavior changes.
+- [ ] Update `README.md` for setup/runtime/feature changes.
+- [ ] Update `backend/openapi.static.json` for API changes.
+- [ ] Rebuild containers with `docker compose up -d --build`.
+- [ ] Verify `GET /api/health` and `GET /api/voices`.
+- [ ] Verify web settings save/load and extension popup behavior.
+- [ ] Verify voice install/uninstall and playback startup quality.
+
+## Troubleshooting
+- `Settings sync failed (404)`: check server URL and whether `/api/settings` exists on the target API.
+- Missing first words: increase `prependSilenceMs` in app settings.
+- Voice install issues: inspect backend logs and network access for model download hosts.
+- API not starting: check `docker compose logs api` for model download or dependency errors.
