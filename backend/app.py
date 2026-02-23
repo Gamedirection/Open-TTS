@@ -20,6 +20,7 @@ AUDIO_DIR = Path(os.getenv("PIPER_AUDIO_DIR", "/data/audio"))
 STATE_DIR = Path(os.getenv("OPEN_TTS_STATE_DIR", "/data/state"))
 SETTINGS_FILE = STATE_DIR / "settings.json"
 HISTORY_FILE = STATE_DIR / "history.json"
+SUPERTONIC_STATE_FILE = STATE_DIR / "supertonic_voices.json"
 DEFAULT_VOICE = os.getenv("PIPER_DEFAULT_VOICE", "en_US-lessac-medium")
 DEFAULT_VOICE_BASE = os.getenv(
     "PIPER_DEFAULT_VOICE_BASE",
@@ -31,6 +32,7 @@ VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_DOWNLOAD_FORMATS = {"wav", "mp3", "ogg"}
 SUPERTONIC_VOICE_NAMES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
 SUPERTONIC_LANGS = {"en", "ko", "es", "pt", "fr"}
+SUPERTONIC_PREINSTALLED = {"supertonic:en:M1", "supertonic:en:F1"}
 
 try:
     from supertonic import TTS as SupertonicTTS
@@ -170,6 +172,24 @@ def ensure_default_voice() -> None:
     download_file(config_url, config_path)
 
 
+def ensure_preinstalled_piper_voices() -> None:
+    # Preinstall only the default and Ryan for new installations.
+    preinstall_ids = [DEFAULT_VOICE, "en_US-ryan-high"]
+    seen = set()
+    for voice_id in preinstall_ids:
+        if voice_id in seen:
+            continue
+        seen.add(voice_id)
+        item = VOICE_CATALOG_BY_ID.get(voice_id)
+        if not item:
+            continue
+        try:
+            download_voice(item["id"], item["base_url"])
+        except Exception:
+            # Non-fatal: API should still start and users can install later.
+            pass
+
+
 def download_file(url: str, target: Path) -> None:
     response = requests.get(url, timeout=60)
     response.raise_for_status()
@@ -236,9 +256,48 @@ def list_supertone_catalog():
     return entries
 
 
+def _read_supertone_state():
+    raw = read_json_file(SUPERTONIC_STATE_FILE, None)
+    if isinstance(raw, list):
+        return raw
+    return None
+
+
+def _save_supertone_state(voice_ids):
+    write_json_file(SUPERTONIC_STATE_FILE, sorted(set(voice_ids)))
+
+
+def _is_existing_installation():
+    # Preserve currently available voices for existing deployments.
+    return SETTINGS_FILE.exists() or HISTORY_FILE.exists() or any(VOICES_DIR.glob("*.onnx"))
+
+
+def get_enabled_supertone_voice_ids():
+    configured = _read_supertone_state()
+    valid_ids = {item["id"] for item in list_supertone_catalog()}
+    if configured is None:
+        enabled = valid_ids if _is_existing_installation() else set(SUPERTONIC_PREINSTALLED)
+        enabled = {voice_id for voice_id in enabled if voice_id in valid_ids}
+        _save_supertone_state(enabled)
+        return enabled
+
+    enabled = {voice_id for voice_id in configured if isinstance(voice_id, str) and voice_id in valid_ids}
+    if set(configured) != enabled:
+        _save_supertone_state(enabled)
+    return enabled
+
+
+def set_enabled_supertone_voice_ids(voice_ids):
+    valid_ids = {item["id"] for item in list_supertone_catalog()}
+    cleaned = {voice_id for voice_id in voice_ids if voice_id in valid_ids}
+    _save_supertone_state(cleaned)
+    return cleaned
+
+
 def list_supertone_models():
     if SupertonicTTS is None:
         return []
+    enabled = get_enabled_supertone_voice_ids()
     return [
         {
             "id": item["id"],
@@ -246,6 +305,7 @@ def list_supertone_models():
             "model": "supertonic",
         }
         for item in list_supertone_catalog()
+        if item["id"] in enabled
     ]
 
 
@@ -268,6 +328,8 @@ def synthesize_with_supertone(text: str, voice_id: str, speed: float, output_pat
         raise ValueError(f"unsupported supertonic language: {lang}")
     if voice_name not in SUPERTONIC_VOICE_NAMES:
         raise ValueError(f"unsupported supertonic voice style: {voice_name}")
+    if voice_id not in get_enabled_supertone_voice_ids():
+        raise ValueError(f"voice not installed: {voice_id}")
 
     tts = get_supertone_tts()
     style = tts.get_voice_style(voice_name=voice_name)
@@ -569,6 +631,14 @@ def install_voice():
         return jsonify({"error": "voice is required"}), 400
     if not VOICE_ID_PATTERN.match(voice_id):
         return jsonify({"error": "invalid voice id"}), 400
+    if voice_id.startswith("supertonic:"):
+        supertone_ids = {item["id"] for item in list_supertone_catalog()}
+        if voice_id not in supertone_ids:
+            return jsonify({"error": f"voice not in catalog: {voice_id}"}), 404
+        enabled = get_enabled_supertone_voice_ids()
+        enabled.add(voice_id)
+        set_enabled_supertone_voice_ids(enabled)
+        return jsonify({"ok": True, "voice": voice_id}), 201
     catalog_item = VOICE_CATALOG_BY_ID.get(voice_id)
     if not catalog_item:
         return jsonify({"error": f"voice not in catalog: {voice_id}"}), 404
@@ -586,6 +656,13 @@ def uninstall_voice(voice_id: str):
     voice_id = voice_id.strip()
     if not VOICE_ID_PATTERN.match(voice_id):
         return jsonify({"error": "invalid voice id"}), 400
+    if voice_id.startswith("supertonic:"):
+        enabled = get_enabled_supertone_voice_ids()
+        removed = voice_id in enabled
+        if removed:
+            enabled.remove(voice_id)
+            set_enabled_supertone_voice_ids(enabled)
+        return jsonify({"ok": True, "removed": removed, "voice": voice_id})
     if voice_id == DEFAULT_VOICE:
         return jsonify({"error": "cannot uninstall default voice"}), 400
 
@@ -733,7 +810,7 @@ def download_audio(name: str):
 
 def try_ensure_default_voice():
     try:
-        ensure_default_voice()
+        ensure_preinstalled_piper_voices()
     except Exception as exc:
         # Keep API available even when default model download is unavailable.
         print(f"[open-tts] warning: could not ensure default voice: {exc}")
