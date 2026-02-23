@@ -29,6 +29,15 @@ PIPER_BIN = os.getenv("PIPER_BIN", "piper")
 SPEAK_TIMEOUT_SECONDS = int(os.getenv("PIPER_TIMEOUT_SECONDS", "60"))
 VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_DOWNLOAD_FORMATS = {"wav", "mp3", "ogg"}
+SUPERTONIC_VOICE_NAMES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
+SUPERTONIC_LANGS = {"en", "ko", "es", "pt", "fr"}
+
+try:
+    from supertonic import TTS as SupertonicTTS
+except Exception:
+    SupertonicTTS = None
+
+_SUPERTONIC_INSTANCE = None
 
 VOICE_CATALOG = [
     {
@@ -186,12 +195,13 @@ def list_voice_models():
                 "model": str(model_file.name),
             }
         )
+    voices.extend(list_supertone_models())
     return voices
 
 
 def list_catalog_with_status():
     installed = {voice["id"] for voice in list_voice_models()}
-    return [
+    catalog = [
         {
             "id": item["id"],
             "label": item["label"],
@@ -200,6 +210,73 @@ def list_catalog_with_status():
         }
         for item in VOICE_CATALOG
     ]
+    catalog.extend(
+        {
+            "id": item["id"],
+            "label": item["label"],
+            "installed": item["id"] in installed,
+            "isDefault": False,
+        }
+        for item in list_supertone_catalog()
+    )
+    return catalog
+
+
+def list_supertone_catalog():
+    entries = []
+    for lang in sorted(SUPERTONIC_LANGS):
+        for voice_name in SUPERTONIC_VOICE_NAMES:
+            entries.append(
+                {
+                    "id": f"supertonic:{lang}:{voice_name}",
+                    "label": f"Supertonic {lang.upper()} - {voice_name}",
+                    "provider": "supertonic",
+                }
+            )
+    return entries
+
+
+def list_supertone_models():
+    if SupertonicTTS is None:
+        return []
+    return [
+        {
+            "id": item["id"],
+            "label": item["label"],
+            "model": "supertonic",
+        }
+        for item in list_supertone_catalog()
+    ]
+
+
+def get_supertone_tts():
+    global _SUPERTONIC_INSTANCE
+    if SupertonicTTS is None:
+        raise RuntimeError("supertonic package is not installed")
+    if _SUPERTONIC_INSTANCE is None:
+        _SUPERTONIC_INSTANCE = SupertonicTTS(auto_download=True)
+    return _SUPERTONIC_INSTANCE
+
+
+def synthesize_with_supertone(text: str, voice_id: str, speed: float, output_path: Path):
+    parts = voice_id.split(":")
+    if len(parts) != 3 or parts[0] != "supertonic":
+        raise ValueError(f"invalid supertonic voice id: {voice_id}")
+    lang = parts[1].strip().lower()
+    voice_name = parts[2].strip().upper()
+    if lang not in SUPERTONIC_LANGS:
+        raise ValueError(f"unsupported supertonic language: {lang}")
+    if voice_name not in SUPERTONIC_VOICE_NAMES:
+        raise ValueError(f"unsupported supertonic voice style: {voice_name}")
+
+    tts = get_supertone_tts()
+    style = tts.get_voice_style(voice_name=voice_name)
+    try:
+        wav, _duration = tts.synthesize(text, voice_style=style, lang=lang, speed=speed)
+    except TypeError:
+        # Fallback for older supertonic signatures that do not expose speed.
+        wav, _duration = tts.synthesize(text, voice_style=style, lang=lang)
+    tts.save_audio(wav, str(output_path))
 
 
 def normalize_speed(speed: float) -> float:
@@ -533,48 +610,54 @@ def speak():
     if not text:
         return jsonify({"error": "text is required"}), 400
 
-    model_path = VOICES_DIR / f"{voice}.onnx"
-    if not model_path.exists():
-        fallback_model = VOICES_DIR / f"{DEFAULT_VOICE}.onnx"
-        if fallback_model.exists():
-            voice = DEFAULT_VOICE
-            model_path = fallback_model
-        else:
-            return jsonify({"error": f"voice not found: {voice}"}), 400
-
     output_name = f"{uuid.uuid4().hex}.wav"
     output_path = AUDIO_DIR / output_name
 
-    cmd = [
-        PIPER_BIN,
-        "--model",
-        str(model_path),
-        "--output_file",
-        str(output_path),
-        "--length_scale",
-        str(normalize_speed(speed)),
-    ]
+    if voice.startswith("supertonic:"):
+        try:
+            synthesize_with_supertone(text, voice, speed, output_path)
+        except Exception as exc:
+            return jsonify({"error": f"supertonic synthesis failed: {exc}"}), 500
+    else:
+        model_path = VOICES_DIR / f"{voice}.onnx"
+        if not model_path.exists():
+            fallback_model = VOICES_DIR / f"{DEFAULT_VOICE}.onnx"
+            if fallback_model.exists():
+                voice = DEFAULT_VOICE
+                model_path = fallback_model
+            else:
+                return jsonify({"error": f"voice not found: {voice}"}), 400
 
-    try:
-        subprocess.run(
-            cmd,
-            input=text.encode("utf-8"),
-            capture_output=True,
-            check=True,
-            timeout=SPEAK_TIMEOUT_SECONDS,
-        )
-    except subprocess.CalledProcessError as exc:
-        return (
-            jsonify(
-                {
-                    "error": "piper synthesis failed",
-                    "stderr": exc.stderr.decode("utf-8", errors="ignore"),
-                }
-            ),
-            500,
-        )
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "piper synthesis timed out"}), 504
+        cmd = [
+            PIPER_BIN,
+            "--model",
+            str(model_path),
+            "--output_file",
+            str(output_path),
+            "--length_scale",
+            str(normalize_speed(speed)),
+        ]
+
+        try:
+            subprocess.run(
+                cmd,
+                input=text.encode("utf-8"),
+                capture_output=True,
+                check=True,
+                timeout=SPEAK_TIMEOUT_SECONDS,
+            )
+        except subprocess.CalledProcessError as exc:
+            return (
+                jsonify(
+                    {
+                        "error": "piper synthesis failed",
+                        "stderr": exc.stderr.decode("utf-8", errors="ignore"),
+                    }
+                ),
+                500,
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({"error": "piper synthesis timed out"}), 504
 
     return (
         jsonify(
