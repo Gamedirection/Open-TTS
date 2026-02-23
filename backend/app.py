@@ -710,6 +710,12 @@ def speak():
     speed = float(body.get("speed") or 1.0)
     current_settings = load_settings()
     silence_ms = int(current_settings.get("prependSilenceMs", PREPEND_SILENCE_MS))
+    if body.get("prependSilenceMs") is not None:
+        try:
+            silence_ms = int(body.get("prependSilenceMs"))
+        except (TypeError, ValueError):
+            silence_ms = int(current_settings.get("prependSilenceMs", PREPEND_SILENCE_MS))
+    silence_ms = max(0, min(silence_ms, 3000))
 
     if not text:
         return jsonify({"error": "text is required"}), 400

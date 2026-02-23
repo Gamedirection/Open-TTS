@@ -9,6 +9,7 @@ const settingsPanel = document.getElementById("settingsPanel");
 const voiceSelect = document.getElementById("voiceSelect");
 const speedInput = document.getElementById("speedInput");
 const volumeInput = document.getElementById("volumeInput");
+const prependSilenceInput = document.getElementById("prependSilenceInput");
 const downloadFormatInput = document.getElementById("downloadFormatInput");
 const themeInput = document.getElementById("themeInput");
 const autoPasteInput = document.getElementById("autoPasteInput");
@@ -84,29 +85,6 @@ function stopLocalAudio() {
   }
 }
 
-function waitForAudioReady(audio, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    if (audio.readyState >= 3) {
-      resolve();
-      return;
-    }
-
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      audio.removeEventListener("canplaythrough", finish);
-      audio.removeEventListener("loadeddata", finish);
-      resolve();
-    };
-
-    const timer = setTimeout(finish, timeoutMs);
-    audio.addEventListener("canplaythrough", finish, { once: true });
-    audio.addEventListener("loadeddata", finish, { once: true });
-  });
-}
-
 async function stopEverywhere() {
   stopLocalAudio();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -122,10 +100,6 @@ async function stopEverywhere() {
 async function playPopupAudio(audioUrl) {
   stopLocalAudio();
   currentAudio = new Audio(audioUrl);
-  currentAudio.preload = "auto";
-  await waitForAudioReady(currentAudio);
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  currentAudio.currentTime = 0;
   await currentAudio.play();
 }
 
@@ -168,6 +142,7 @@ async function refreshUI() {
   applyTheme(settings.theme);
   if (speedInput) speedInput.value = String(Number(settings.speed || 1.0));
   if (volumeInput) volumeInput.value = String(Number(settings.volume ?? 1.0));
+  if (prependSilenceInput) prependSilenceInput.value = String(Number(settings.prependSilenceMs ?? 350));
   if (downloadFormatInput) downloadFormatInput.value = ["wav", "mp3", "ogg"].includes(settings.downloadFormat) ? settings.downloadFormat : "wav";
   if (themeInput) themeInput.value = settings.theme === "dark" ? "dark" : "light";
   if (autoPasteInput) autoPasteInput.checked = Boolean(settings.autoPasteClipboard);
@@ -197,6 +172,7 @@ async function saveSettingsFromInputs() {
   const voice = voiceSelect?.value || "";
   const speed = Number(speedInput?.value || 1);
   const volume = Number(volumeInput?.value ?? 1);
+  const prependSilenceMs = Math.max(0, Math.min(3000, Number(prependSilenceInput?.value ?? 350) || 350));
   const downloadFormat = ["wav", "mp3", "ogg"].includes(downloadFormatInput?.value) ? downloadFormatInput.value : "wav";
   const theme = themeInput?.value === "dark" ? "dark" : "light";
   const autoPasteClipboard = Boolean(autoPasteInput?.checked);
@@ -206,6 +182,7 @@ async function saveSettingsFromInputs() {
     voice,
     speed,
     volume,
+    prependSilenceMs,
     downloadFormat,
     theme,
     autoPasteClipboard,
@@ -293,6 +270,7 @@ downloadConfigBtn?.addEventListener("click", async (ev) => {
         voice: settings.voice || "",
         speed: Number(settings.speed || 1),
         volume: Number(settings.volume ?? 1),
+        prependSilenceMs: Number(settings.prependSilenceMs ?? 350),
         downloadFormat: settings.downloadFormat || "wav",
         theme: settings.theme === "dark" ? "dark" : "light",
         autoPasteClipboard: Boolean(settings.autoPasteClipboard),
@@ -330,6 +308,7 @@ configFileInput?.addEventListener("change", async () => {
     const voice = String(imported.voice || "");
     const speed = Number(imported.speed ?? 1);
     const volume = Number(imported.volume ?? 1);
+    const prependSilenceMs = Math.max(0, Math.min(3000, Number(imported.prependSilenceMs ?? 350) || 350));
     const downloadFormat = ["wav", "mp3", "ogg"].includes(imported.downloadFormat) ? imported.downloadFormat : "wav";
     const theme = imported.theme === "dark" ? "dark" : "light";
     const autoPasteClipboard = Boolean(imported.autoPasteClipboard);
@@ -340,6 +319,7 @@ configFileInput?.addEventListener("change", async () => {
       voice,
       speed,
       volume,
+      prependSilenceMs,
       downloadFormat,
       theme,
       autoPasteClipboard,

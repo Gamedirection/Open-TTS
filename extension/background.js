@@ -1,5 +1,5 @@
 const MENU_ID = "open_tts_read_selection";
-const SHARED_KEYS = ["voice", "speed", "volume", "downloadFormat", "theme", "autoPasteClipboard", "hotkeys"];
+const SHARED_KEYS = ["voice", "speed", "volume", "downloadFormat", "theme", "autoPasteClipboard", "hotkeys", "prependSilenceMs"];
 
 async function getSettings() {
   const data = await chrome.storage.sync.get({
@@ -11,6 +11,7 @@ async function getSettings() {
     downloadFormat: "wav",
     autoPasteClipboard: false,
     hotkeys: {},
+    prependSilenceMs: 350,
   });
   const serverUrl = normalizeServerUrl(data.serverUrl || "http://localhost:3016");
   return {
@@ -25,6 +26,7 @@ async function getSettings() {
       : "wav",
     autoPasteClipboard: Boolean(data.autoPasteClipboard),
     hotkeys: data.hotkeys && typeof data.hotkeys === "object" ? data.hotkeys : {},
+    prependSilenceMs: Math.max(0, Math.min(3000, Number(data.prependSilenceMs ?? 350) || 350)),
   };
 }
 
@@ -60,11 +62,11 @@ async function ensureContentScript(tabId) {
   }
 }
 
-async function synthesize(text, serverUrl, voice, speed) {
+async function synthesize(text, serverUrl, voice, speed, prependSilenceMs) {
   const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/speak`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, voice, speed })
+    body: JSON.stringify({ text, voice, speed, prependSilenceMs })
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -92,7 +94,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
   try {
     const settings = await getSettings();
-    const { audioUrl } = await synthesize(text, settings.serverUrl, settings.voice, settings.speed);
+    const { audioUrl } = await synthesize(
+      text,
+      settings.serverUrl,
+      settings.voice,
+      settings.speed,
+      settings.prependSilenceMs
+    );
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
       type: "open_tts_play_audio",
@@ -145,6 +153,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           : "wav";
         merged.autoPasteClipboard = Boolean(merged.autoPasteClipboard);
         merged.hotkeys = merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {};
+        merged.prependSilenceMs = Math.max(0, Math.min(3000, Number(merged.prependSilenceMs ?? 350) || 350));
 
         await chrome.storage.sync.set({
           serverUrl: merged.serverUrl,
@@ -155,6 +164,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           downloadFormat: merged.downloadFormat,
           autoPasteClipboard: merged.autoPasteClipboard,
           hotkeys: merged.hotkeys,
+          prependSilenceMs: merged.prependSilenceMs,
         });
         sendResponse({ ok: true, ...merged });
         return;
@@ -166,7 +176,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: false, error: "Text is required" });
           return;
         }
-        const result = await synthesize(text, settings.serverUrl, settings.voice, settings.speed);
+        const result = await synthesize(
+          text,
+          settings.serverUrl,
+          settings.voice,
+          settings.speed,
+          settings.prependSilenceMs
+        );
         await appendHistory(settings.serverUrl, {
           text,
           createdAt: new Date().toISOString(),
