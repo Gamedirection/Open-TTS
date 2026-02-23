@@ -84,6 +84,29 @@ function stopLocalAudio() {
   }
 }
 
+function waitForAudioReady(audio, timeoutMs = 2500) {
+  return new Promise((resolve) => {
+    if (audio.readyState >= 3) {
+      resolve();
+      return;
+    }
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      audio.removeEventListener("canplaythrough", finish);
+      audio.removeEventListener("loadeddata", finish);
+      resolve();
+    };
+
+    const timer = setTimeout(finish, timeoutMs);
+    audio.addEventListener("canplaythrough", finish, { once: true });
+    audio.addEventListener("loadeddata", finish, { once: true });
+  });
+}
+
 async function stopEverywhere() {
   stopLocalAudio();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -99,6 +122,10 @@ async function stopEverywhere() {
 async function playPopupAudio(audioUrl) {
   stopLocalAudio();
   currentAudio = new Audio(audioUrl);
+  currentAudio.preload = "auto";
+  await waitForAudioReady(currentAudio);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  currentAudio.currentTime = 0;
   await currentAudio.play();
 }
 

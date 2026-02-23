@@ -5,6 +5,29 @@
     audio: null
   };
 
+  function waitForAudioReady(audio, timeoutMs = 2500) {
+    return new Promise((resolve) => {
+      if (audio.readyState >= 3) {
+        resolve();
+        return;
+      }
+
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        audio.removeEventListener("canplaythrough", finish);
+        audio.removeEventListener("loadeddata", finish);
+        resolve();
+      };
+
+      const timer = setTimeout(finish, timeoutMs);
+      audio.addEventListener("canplaythrough", finish, { once: true });
+      audio.addEventListener("loadeddata", finish, { once: true });
+    });
+  }
+
   function stopPlayback() {
     state.queue = [];
     if (state.audio) {
@@ -27,10 +50,17 @@
       const audioUrl = state.queue.shift();
       await new Promise((resolve) => {
         const audio = new Audio(audioUrl);
+        audio.preload = "auto";
         state.audio = audio;
         audio.addEventListener("ended", resolve, { once: true });
         audio.addEventListener("error", resolve, { once: true });
-        audio.play().catch(resolve);
+        waitForAudioReady(audio)
+          .then(() => new Promise((r) => setTimeout(r, 120)))
+          .then(() => {
+            audio.currentTime = 0;
+            return audio.play();
+          })
+          .catch(() => resolve());
       });
       state.audio = null;
     }
