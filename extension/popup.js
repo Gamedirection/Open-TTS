@@ -6,7 +6,6 @@ const settingsBtn = document.getElementById("settingsBtn");
 const lastEntry = document.getElementById("lastEntry");
 const statusEl = document.getElementById("status");
 const settingsPanel = document.getElementById("settingsPanel");
-const mainSiteUrlInput = document.getElementById("mainSiteUrlInput");
 const voiceSelect = document.getElementById("voiceSelect");
 const speedInput = document.getElementById("speedInput");
 const volumeInput = document.getElementById("volumeInput");
@@ -31,18 +30,6 @@ function normalize(url) {
 
 function normalizeServerUrl(url) {
   return normalize(url).replace(/\/api$/i, "");
-}
-
-function deriveMainSiteUrl(serverUrl) {
-  const normalized = normalizeServerUrl(serverUrl);
-  if (!normalized) return "http://localhost:3015";
-  try {
-    const url = new URL(normalized);
-    if (url.port === "3016") url.port = "3015";
-    return normalize(url.toString());
-  } catch (_err) {
-    return "http://localhost:3015";
-  }
 }
 
 function applyTheme(theme) {
@@ -119,7 +106,6 @@ async function refreshUI() {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
   applyTheme(settings.theme);
-  if (mainSiteUrlInput) mainSiteUrlInput.value = settings.mainSiteUrl || deriveMainSiteUrl(settings.serverUrl);
   if (speedInput) speedInput.value = String(Number(settings.speed || 1.0));
   if (volumeInput) volumeInput.value = String(Number(settings.volume ?? 1.0));
   if (downloadFormatInput) downloadFormatInput.value = ["wav", "mp3", "ogg"].includes(settings.downloadFormat) ? settings.downloadFormat : "wav";
@@ -147,7 +133,6 @@ async function refreshUI() {
 
 async function saveSettingsFromInputs() {
   const serverUrl = normalizeServerUrl(serverUrlInput.value);
-  const mainSiteUrl = normalize(mainSiteUrlInput?.value) || deriveMainSiteUrl(serverUrl);
   const voice = voiceSelect?.value || "";
   const speed = Number(speedInput?.value || 1);
   const volume = Number(volumeInput?.value ?? 1);
@@ -157,7 +142,6 @@ async function saveSettingsFromInputs() {
 
   const saved = await setSettings({
     serverUrl,
-    mainSiteUrl,
     voice,
     speed,
     volume,
@@ -173,8 +157,8 @@ async function saveSettingsFromInputs() {
 serverUrlInput.addEventListener("change", async () => {
   try {
     const serverUrl = normalizeServerUrl(serverUrlInput.value);
-    const saved = await setSettings({ serverUrl, mainSiteUrl: deriveMainSiteUrl(serverUrl) });
-    status(saved.syncWarning ? `Saved locally. Server sync failed: ${saved.syncWarning}` : "Settings synced.");
+    await setSettings({ serverUrl });
+    status("Settings saved locally.");
   } catch (err) {
     status(err.message);
   }
@@ -203,19 +187,7 @@ stopBtn.addEventListener("click", async () => {
 });
 
 settingsBtn.addEventListener("click", async () => {
-  if (!settingsPanel) {
-    try {
-      const settings = await getSettings();
-      const settingsUrl = normalize(settings.mainSiteUrl) || deriveMainSiteUrl(settings.serverUrl);
-      const url = new URL(settingsUrl);
-      url.searchParams.set("openSettings", "1");
-      await chrome.tabs.create({ url: url.toString() });
-    } catch (err) {
-      status(`Could not open settings: ${err.message}`);
-    }
-    return;
-  }
-
+  if (!settingsPanel) return;
   settingsPanel.classList.toggle("open");
   if (settingsPanel.classList.contains("open")) {
     try {
@@ -237,8 +209,8 @@ textInput.addEventListener("keydown", async (ev) => {
 saveSettingsBtn?.addEventListener("click", async (ev) => {
   ev.preventDefault();
   try {
-    const saved = await saveSettingsFromInputs();
-    status(saved.syncWarning ? `Saved locally. Server sync failed: ${saved.syncWarning}` : "Settings synced.");
+    await saveSettingsFromInputs();
+    status("Settings saved locally.");
   } catch (err) {
     status(`Could not save settings: ${err.message}`);
   }
@@ -270,7 +242,6 @@ downloadConfigBtn?.addEventListener("click", async (ev) => {
       exportedAt: new Date().toISOString(),
       settings: {
         serverUrl: settings.serverUrl || "",
-        mainSiteUrl: settings.mainSiteUrl || "",
         voice: settings.voice || "",
         speed: Number(settings.speed || 1),
         volume: Number(settings.volume ?? 1),
@@ -308,7 +279,6 @@ configFileInput?.addEventListener("change", async () => {
     const parsed = JSON.parse(text);
     const imported = parsed.settings || {};
     const serverUrl = normalizeServerUrl(imported.serverUrl || serverUrlInput.value || "");
-    const mainSiteUrl = normalize(imported.mainSiteUrl || mainSiteUrlInput?.value || deriveMainSiteUrl(serverUrl));
     const voice = String(imported.voice || "");
     const speed = Number(imported.speed ?? 1);
     const volume = Number(imported.volume ?? 1);
@@ -319,7 +289,6 @@ configFileInput?.addEventListener("change", async () => {
 
     await setSettings({
       serverUrl,
-      mainSiteUrl,
       voice,
       speed,
       volume,
@@ -329,7 +298,7 @@ configFileInput?.addEventListener("change", async () => {
       hotkeys,
     });
     await refreshUI();
-    status("Config uploaded and synced.");
+    status("Config uploaded and saved locally.");
   } catch (err) {
     status(`Could not import config: ${err.message}`);
   } finally {

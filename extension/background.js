@@ -1,40 +1,31 @@
 const MENU_ID = "open_tts_read_selection";
-const SHARED_KEYS = [
-  "voice",
-  "speed",
-  "volume",
-  "downloadFormat",
-  "theme",
-  "autoPasteClipboard",
-  "hotkeys",
-];
+const SHARED_KEYS = ["voice", "speed", "volume", "downloadFormat", "theme", "autoPasteClipboard", "hotkeys"];
 
 async function getSettings() {
   const data = await chrome.storage.sync.get({
     serverUrl: "http://localhost:3016",
-    mainSiteUrl: "http://localhost:3015",
     theme: "light",
     voice: "",
-    speed: 1.0
+    speed: 1.0,
+    volume: 1.0,
+    downloadFormat: "wav",
+    autoPasteClipboard: false,
+    hotkeys: {},
   });
   const serverUrl = normalizeServerUrl(data.serverUrl || "http://localhost:3016");
-  const mainSiteUrl = normalizeUrl(data.mainSiteUrl || deriveMainSiteUrl(serverUrl));
-  const remoteSettings = await getRemoteSettings(serverUrl);
-  const merged = { ...data, ...remoteSettings, serverUrl, mainSiteUrl };
-  const normalizedTheme = String(merged.theme || "light").toLowerCase() === "dark" ? "dark" : "light";
-  merged.theme = normalizedTheme;
-  if (remoteSettings && Object.keys(remoteSettings).length) {
-    await chrome.storage.sync.set({
-      theme: merged.theme,
-      voice: merged.voice || "",
-      speed: Number(merged.speed || 1.0),
-      volume: Number(merged.volume ?? 1.0),
-      downloadFormat: merged.downloadFormat || "wav",
-      autoPasteClipboard: Boolean(merged.autoPasteClipboard),
-      hotkeys: merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {},
-    });
-  }
-  return merged;
+  return {
+    ...data,
+    serverUrl,
+    theme: String(data.theme || "light").toLowerCase() === "dark" ? "dark" : "light",
+    voice: data.voice || "",
+    speed: Number(data.speed || 1.0),
+    volume: Number(data.volume ?? 1.0),
+    downloadFormat: ["wav", "mp3", "ogg"].includes(String(data.downloadFormat || "").toLowerCase())
+      ? String(data.downloadFormat).toLowerCase()
+      : "wav",
+    autoPasteClipboard: Boolean(data.autoPasteClipboard),
+    hotkeys: data.hotkeys && typeof data.hotkeys === "object" ? data.hotkeys : {},
+  };
 }
 
 function normalizeUrl(url) {
@@ -43,69 +34,6 @@ function normalizeUrl(url) {
 
 function normalizeServerUrl(url) {
   return normalizeUrl(url).replace(/\/api$/i, "");
-}
-
-function deriveMainSiteUrl(serverUrl) {
-  const normalized = normalizeServerUrl(serverUrl);
-  if (!normalized) return "http://localhost:3015";
-  try {
-    const url = new URL(normalized);
-    if (url.port === "3016") url.port = "3015";
-    return normalizeUrl(url.toString());
-  } catch (_err) {
-    return "http://localhost:3015";
-  }
-}
-
-async function getRemoteSettings(serverUrl) {
-  const base = normalizeServerUrl(serverUrl);
-  const candidates = [`${base}/api/settings`, `${base}/settings`];
-  try {
-    for (const url of candidates) {
-      const res = await fetch(url);
-      if (res.status === 404) continue;
-      if (!res.ok) return {};
-      const data = await res.json();
-      return data && typeof data === "object" ? data : {};
-    }
-    return {};
-  } catch (_err) {
-    return {};
-  }
-}
-
-async function putRemoteSettings(serverUrl, nextSettings) {
-  const payload = {};
-  for (const key of SHARED_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(nextSettings, key)) {
-      payload[key] = nextSettings[key];
-    }
-  }
-  if (!Object.keys(payload).length) return {};
-
-  const base = normalizeServerUrl(serverUrl);
-  const candidates = [`${base}/api/settings`, `${base}/settings`];
-  let lastStatus = 0;
-
-  for (const url of candidates) {
-    const res = await fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (res.status === 404) {
-      lastStatus = res.status;
-      continue;
-    }
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Settings sync failed (${res.status})`);
-    }
-    const saved = await res.json().catch(() => ({}));
-    return saved && typeof saved === "object" ? saved : {};
-  }
-
-  throw new Error(`Settings sync failed (${lastStatus || 404})`);
 }
 
 async function appendHistory(serverUrl, entry) {
@@ -197,30 +125,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message?.type === "open_tts_set_settings") {
         const existing = await getSettings();
         const serverUrl = normalizeServerUrl(message.serverUrl || existing.serverUrl || "http://localhost:3016");
-        const hasMainSiteUrl = typeof message.mainSiteUrl === "string" && message.mainSiteUrl.trim().length > 0;
-        const mainSiteUrl = hasMainSiteUrl
-          ? normalizeUrl(message.mainSiteUrl)
-          : deriveMainSiteUrl(serverUrl);
-        const localToSave = { serverUrl, mainSiteUrl };
+        const localToSave = { serverUrl };
         for (const key of SHARED_KEYS) {
           if (Object.prototype.hasOwnProperty.call(message, key)) {
             localToSave[key] = message[key];
           }
         }
 
-        let remoteSaved = {};
-        let syncWarning = "";
-        try {
-          remoteSaved = await putRemoteSettings(serverUrl, localToSave);
-        } catch (err) {
-          syncWarning = err?.message || "Settings sync failed";
-        }
         const merged = {
           ...existing,
           ...localToSave,
-          ...remoteSaved,
           serverUrl,
-          mainSiteUrl,
         };
         merged.theme = String(merged.theme || "light").toLowerCase() === "dark" ? "dark" : "light";
         merged.speed = Number(merged.speed || 1.0);
@@ -233,7 +148,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         await chrome.storage.sync.set({
           serverUrl: merged.serverUrl,
-          mainSiteUrl: merged.mainSiteUrl,
           theme: merged.theme,
           voice: merged.voice || "",
           speed: merged.speed,
@@ -242,7 +156,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           autoPasteClipboard: merged.autoPasteClipboard,
           hotkeys: merged.hotkeys,
         });
-        sendResponse({ ok: true, syncWarning, ...merged });
+        sendResponse({ ok: true, ...merged });
         return;
       }
       if (message?.type === "open_tts_speak") {
