@@ -16,6 +16,18 @@ function normalize(url) {
   return (url || "").trim().replace(/\/$/, "");
 }
 
+function deriveMainSiteUrl(serverUrl) {
+  const normalized = normalize(serverUrl);
+  if (!normalized) return "http://localhost:3015";
+  try {
+    const url = new URL(normalized);
+    if (url.port === "3016") url.port = "3015";
+    return normalize(url.toString());
+  } catch (_err) {
+    return "http://localhost:3015";
+  }
+}
+
 async function getSettings() {
   const response = await chrome.runtime.sendMessage({ type: "open_tts_get_settings" });
   if (!response?.ok) throw new Error(response?.error || "Could not load settings");
@@ -74,7 +86,8 @@ async function refreshUI() {
 
 serverUrlInput.addEventListener("change", async () => {
   try {
-    await setSettings({ serverUrl: normalize(serverUrlInput.value) });
+    const serverUrl = normalize(serverUrlInput.value);
+    await setSettings({ serverUrl, mainSiteUrl: deriveMainSiteUrl(serverUrl) });
     status("Server saved.");
   } catch (err) {
     status(err.message);
@@ -106,7 +119,8 @@ stopBtn.addEventListener("click", async () => {
 settingsBtn.addEventListener("click", async () => {
   try {
     const settings = await getSettings();
-    await chrome.tabs.create({ url: settings.mainSiteUrl || "http://localhost:3015" });
+    const settingsUrl = normalize(settings.mainSiteUrl) || deriveMainSiteUrl(settings.serverUrl);
+    await chrome.tabs.create({ url: settingsUrl });
   } catch (err) {
     status(`Could not open settings: ${err.message}`);
   }

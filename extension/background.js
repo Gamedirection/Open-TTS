@@ -12,6 +12,18 @@ function normalizeUrl(url) {
   return (url || "").trim().replace(/\/$/, "");
 }
 
+function deriveMainSiteUrl(serverUrl) {
+  const normalized = normalizeUrl(serverUrl);
+  if (!normalized) return "http://localhost:3015";
+  try {
+    const url = new URL(normalized);
+    if (url.port === "3016") url.port = "3015";
+    return normalizeUrl(url.toString());
+  } catch (_err) {
+    return "http://localhost:3015";
+  }
+}
+
 async function ensureContentScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "open_tts_ping" });
@@ -79,8 +91,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
       if (message?.type === "open_tts_set_settings") {
-        const serverUrl = normalizeUrl(message.serverUrl || "http://localhost:3016");
-        const mainSiteUrl = normalizeUrl(message.mainSiteUrl || "http://localhost:3015");
+        const existing = await getSettings();
+        const serverUrl = normalizeUrl(message.serverUrl || existing.serverUrl || "http://localhost:3016");
+        const hasMainSiteUrl = typeof message.mainSiteUrl === "string" && message.mainSiteUrl.trim().length > 0;
+        const mainSiteUrl = hasMainSiteUrl
+          ? normalizeUrl(message.mainSiteUrl)
+          : deriveMainSiteUrl(serverUrl);
         await chrome.storage.sync.set({ serverUrl, mainSiteUrl });
         sendResponse({ ok: true, serverUrl, mainSiteUrl });
         return;
