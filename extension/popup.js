@@ -199,6 +199,19 @@ stopBtn.addEventListener("click", async () => {
 });
 
 settingsBtn.addEventListener("click", async () => {
+  if (!settingsPanel) {
+    try {
+      const settings = await getSettings();
+      const settingsUrl = normalize(settings.mainSiteUrl) || deriveMainSiteUrl(settings.serverUrl);
+      const url = new URL(settingsUrl);
+      url.searchParams.set("openSettings", "1");
+      await chrome.tabs.create({ url: url.toString() });
+    } catch (err) {
+      status(`Could not open settings: ${err.message}`);
+    }
+    return;
+  }
+
   settingsPanel.classList.toggle("open");
   if (settingsPanel.classList.contains("open")) {
     try {
