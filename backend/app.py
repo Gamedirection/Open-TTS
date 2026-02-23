@@ -3,6 +3,8 @@ import re
 import shutil
 import subprocess
 import uuid
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +17,9 @@ CORS(app)
 
 VOICES_DIR = Path(os.getenv("PIPER_VOICES_DIR", "/data/voices"))
 AUDIO_DIR = Path(os.getenv("PIPER_AUDIO_DIR", "/data/audio"))
+STATE_DIR = Path(os.getenv("OPEN_TTS_STATE_DIR", "/data/state"))
+SETTINGS_FILE = STATE_DIR / "settings.json"
+HISTORY_FILE = STATE_DIR / "history.json"
 DEFAULT_VOICE = os.getenv("PIPER_DEFAULT_VOICE", "en_US-lessac-medium")
 DEFAULT_VOICE_BASE = os.getenv(
     "PIPER_DEFAULT_VOICE_BASE",
@@ -76,6 +81,66 @@ VOICE_CATALOG_BY_ID = {v["id"]: v for v in VOICE_CATALOG}
 
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+DEFAULT_SETTINGS = {
+    "voice": DEFAULT_VOICE,
+    "speed": 1.0,
+    "volume": 1.0,
+    "downloadFormat": "wav",
+    "theme": "light",
+    "autoPasteClipboard": False,
+    "hotkeys": {},
+}
+
+
+def read_json_file(path: Path, default_value):
+    if not path.exists():
+        return default_value
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return default_value
+
+
+def write_json_file(path: Path, data) -> None:
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(data, ensure_ascii=True, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def normalize_settings(data: dict) -> dict:
+    incoming = data or {}
+    merged = {**DEFAULT_SETTINGS, **incoming}
+    merged["voice"] = str(merged.get("voice") or DEFAULT_VOICE).strip() or DEFAULT_VOICE
+    merged["speed"] = float(merged.get("speed") or 1.0)
+    merged["volume"] = float(merged.get("volume") or 1.0)
+    merged["downloadFormat"] = safe_download_format(merged.get("downloadFormat") or "wav")
+    merged["theme"] = "dark" if str(merged.get("theme") or "").lower() == "dark" else "light"
+    merged["autoPasteClipboard"] = bool(merged.get("autoPasteClipboard"))
+    merged["hotkeys"] = merged.get("hotkeys") if isinstance(merged.get("hotkeys"), dict) else {}
+    return merged
+
+
+def load_settings() -> dict:
+    return normalize_settings(read_json_file(SETTINGS_FILE, DEFAULT_SETTINGS))
+
+
+def save_settings(data: dict) -> dict:
+    settings = normalize_settings(data)
+    write_json_file(SETTINGS_FILE, settings)
+    return settings
+
+
+def load_history() -> list:
+    history = read_json_file(HISTORY_FILE, [])
+    return history if isinstance(history, list) else []
+
+
+def save_history(items: list) -> list:
+    history = items if isinstance(items, list) else []
+    write_json_file(HISTORY_FILE, history)
+    return history
 
 
 def ensure_default_voice() -> None:
@@ -164,11 +229,47 @@ def openapi_spec():
         "openapi": "3.0.3",
         "info": {
             "title": "Open-TTS API",
-            "version": "0.3.0",
+            "version": "0.4.0",
             "description": "API for Piper-based text-to-speech, voice management, and downloadable audio.",
         },
         "servers": [{"url": base_url}],
         "paths": {
+            "/api/settings": {
+                "get": {
+                    "summary": "Read shared app settings",
+                    "responses": {"200": {"description": "Settings"}},
+                },
+                "put": {
+                    "summary": "Write shared app settings",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "responses": {"200": {"description": "Settings saved"}},
+                },
+            },
+            "/api/history": {
+                "get": {
+                    "summary": "Read shared history",
+                    "responses": {"200": {"description": "History"}},
+                },
+                "put": {
+                    "summary": "Replace shared history",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "array"}}},
+                    },
+                    "responses": {"200": {"description": "History saved"}},
+                },
+                "post": {
+                    "summary": "Append one history entry",
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": {"type": "object"}}},
+                    },
+                    "responses": {"201": {"description": "Entry added"}},
+                },
+            },
             "/api/health": {
                 "get": {
                     "summary": "Health check",
@@ -288,6 +389,58 @@ def openapi_spec():
 @app.get("/api/health")
 def health():
     return jsonify({"ok": True})
+
+
+@app.get("/api/settings")
+def get_settings():
+    return jsonify(load_settings())
+
+
+@app.put("/api/settings")
+def put_settings():
+    body = request.get_json(silent=True) or {}
+    saved = save_settings(body)
+    return jsonify(saved)
+
+
+@app.get("/api/history")
+def get_history():
+    return jsonify({"items": load_history()})
+
+
+@app.put("/api/history")
+def put_history():
+    body = request.get_json(silent=True)
+    if not isinstance(body, list):
+        return jsonify({"error": "history body must be an array"}), 400
+    saved = save_history(body)
+    return jsonify({"ok": True, "items": saved})
+
+
+@app.post("/api/history")
+def post_history():
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "history entry must be an object"}), 400
+
+    entry = {
+        "id": body.get("id") or uuid.uuid4().hex,
+        "text": str(body.get("text") or "").strip(),
+        "createdAt": body.get("createdAt"),
+        "voice": str(body.get("voice") or DEFAULT_VOICE),
+        "speed": float(body.get("speed") or 1.0),
+        "audioUrl": str(body.get("audioUrl") or ""),
+        "pinned": bool(body.get("pinned")),
+    }
+    if not entry["text"]:
+        return jsonify({"error": "text is required"}), 400
+    if not entry["createdAt"]:
+        entry["createdAt"] = datetime.now(timezone.utc).isoformat()
+
+    history = load_history()
+    history.append(entry)
+    save_history(history)
+    return jsonify({"ok": True, "entry": entry}), 201
 
 
 @app.get("/api/openapi.json")

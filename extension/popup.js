@@ -28,6 +28,11 @@ function deriveMainSiteUrl(serverUrl) {
   }
 }
 
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+}
+
 async function getSettings() {
   const response = await chrome.runtime.sendMessage({ type: "open_tts_get_settings" });
   if (!response?.ok) throw new Error(response?.error || "Could not load settings");
@@ -40,9 +45,25 @@ async function setSettings(next) {
   return response;
 }
 
-async function getLastEntry() {
-  const data = await chrome.storage.local.get({ lastEntry: "", lastEntryAt: "" });
-  return data;
+async function getLastEntry(settings) {
+  try {
+    const base = normalize(settings.serverUrl || "");
+    if (base) {
+      const res = await fetch(`${base}/api/history`);
+      if (res.ok) {
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (items.length) {
+          const last = items[items.length - 1];
+          return { lastEntry: last.text || "", lastEntryAt: last.createdAt || "" };
+        }
+      }
+    }
+  } catch (_err) {
+    // fallback to local value
+  }
+  const local = await chrome.storage.local.get({ lastEntry: "", lastEntryAt: "" });
+  return local;
 }
 
 async function speak(text) {
@@ -80,7 +101,8 @@ async function playPopupAudio(audioUrl) {
 async function refreshUI() {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
-  const last = await getLastEntry();
+  applyTheme(settings.theme);
+  const last = await getLastEntry(settings);
   lastEntry.textContent = last.lastEntry || "No entry yet.";
 }
 

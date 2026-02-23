@@ -5,7 +5,10 @@ async function getSettings() {
     serverUrl: "http://localhost:3016",
     mainSiteUrl: "http://localhost:3015"
   });
-  return data;
+  const serverUrl = normalizeUrl(data.serverUrl || "http://localhost:3016");
+  const mainSiteUrl = normalizeUrl(data.mainSiteUrl || deriveMainSiteUrl(serverUrl));
+  const remoteSettings = await getRemoteSettings(serverUrl);
+  return { ...remoteSettings, serverUrl, mainSiteUrl };
 }
 
 function normalizeUrl(url) {
@@ -24,6 +27,29 @@ function deriveMainSiteUrl(serverUrl) {
   }
 }
 
+async function getRemoteSettings(serverUrl) {
+  try {
+    const res = await fetch(`${normalizeUrl(serverUrl)}/api/settings`);
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data && typeof data === "object" ? data : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+async function appendHistory(serverUrl, entry) {
+  try {
+    await fetch(`${normalizeUrl(serverUrl)}/api/history`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(entry)
+    });
+  } catch (_err) {
+    // non-fatal; local last-entry still updates
+  }
+}
+
 async function ensureContentScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "open_tts_ping" });
@@ -36,11 +62,11 @@ async function ensureContentScript(tabId) {
   }
 }
 
-async function synthesize(text, serverUrl) {
+async function synthesize(text, serverUrl, voice, speed) {
   const res = await fetch(`${normalizeUrl(serverUrl)}/api/speak`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text, voice, speed })
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -67,12 +93,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (!text || !tab?.id) return;
 
   try {
-    const { serverUrl } = await getSettings();
-    const { audioUrl } = await synthesize(text, serverUrl);
+    const settings = await getSettings();
+    const { audioUrl } = await synthesize(text, settings.serverUrl, settings.voice, settings.speed);
     await ensureContentScript(tab.id);
     await chrome.tabs.sendMessage(tab.id, {
       type: "open_tts_play_audio",
       audioUrl
+    });
+    await appendHistory(settings.serverUrl, {
+      text,
+      createdAt: new Date().toISOString(),
+      voice: settings.voice || "",
+      speed: Number(settings.speed || 1),
+      audioUrl,
+      pinned: false
     });
     await chrome.storage.local.set({
       lastEntry: text,
@@ -102,13 +136,21 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return;
       }
       if (message?.type === "open_tts_speak") {
-        const { serverUrl } = await getSettings();
+        const settings = await getSettings();
         const text = (message.text || "").trim();
         if (!text) {
           sendResponse({ ok: false, error: "Text is required" });
           return;
         }
-        const result = await synthesize(text, serverUrl);
+        const result = await synthesize(text, settings.serverUrl, settings.voice, settings.speed);
+        await appendHistory(settings.serverUrl, {
+          text,
+          createdAt: new Date().toISOString(),
+          voice: settings.voice || "",
+          speed: Number(settings.speed || 1),
+          audioUrl: result.audioUrl,
+          pinned: false
+        });
         await chrome.storage.local.set({
           lastEntry: text,
           lastEntryAt: new Date().toISOString()

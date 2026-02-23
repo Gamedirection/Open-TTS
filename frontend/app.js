@@ -1,5 +1,6 @@
 const STORAGE_KEY = "piper_chat_history_v1";
 const SETTINGS_KEY = "piper_chat_settings_v1";
+const REMOTE_SYNC_DELAY_MS = 400;
 const HOTKEY_DEFAULTS = Object.freeze({
   focusInput: "v",
   stopAudio: "s",
@@ -75,6 +76,8 @@ const configFileInput = document.getElementById("configFileInput");
 const deleteAllUnpinnedBtn = document.getElementById("deleteAllUnpinnedBtn");
 const deleteAllPinnedBtn = document.getElementById("deleteAllPinnedBtn");
 let lastClipboardAutopasteMs = 0;
+let settingsSyncTimer = null;
+let historySyncTimer = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -106,10 +109,30 @@ function loadLocalState() {
 
 function saveHistory() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.history));
+  queueHistorySync();
 }
 
 function saveSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
+  queueSettingsSync();
+}
+
+function queueSettingsSync() {
+  clearTimeout(settingsSyncTimer);
+  settingsSyncTimer = setTimeout(() => {
+    syncSettingsToServer().catch((err) => {
+      console.warn("Settings sync failed", err);
+    });
+  }, REMOTE_SYNC_DELAY_MS);
+}
+
+function queueHistorySync() {
+  clearTimeout(historySyncTimer);
+  historySyncTimer = setTimeout(() => {
+    syncHistoryToServer().catch((err) => {
+      console.warn("History sync failed", err);
+    });
+  }, REMOTE_SYNC_DELAY_MS);
 }
 
 function setLoading(isLoading) {
@@ -270,6 +293,64 @@ function getConfigForExport() {
     },
     hotkeys: state.settings.hotkeys,
   };
+}
+
+function getSharedSettingsPayload() {
+  return {
+    serverUrl: state.settings.serverUrl,
+    voice: state.settings.voice,
+    speed: state.settings.speed,
+    volume: state.settings.volume,
+    downloadFormat: state.settings.downloadFormat,
+    theme: state.settings.theme,
+    autoPasteClipboard: state.settings.autoPasteClipboard,
+    hotkeys: state.settings.hotkeys,
+  };
+}
+
+async function syncSettingsToServer() {
+  const res = await fetch(`${getApiBase()}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(getSharedSettingsPayload()),
+  });
+  if (!res.ok) throw new Error(`settings sync failed (${res.status})`);
+}
+
+async function syncHistoryToServer() {
+  const res = await fetch(`${getApiBase()}/api/history`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(state.history),
+  });
+  if (!res.ok) throw new Error(`history sync failed (${res.status})`);
+}
+
+async function loadRemoteState() {
+  try {
+    const settingsRes = await fetch(`${getApiBase()}/api/settings`);
+    if (settingsRes.ok) {
+      const remoteSettings = await settingsRes.json();
+      state.settings = {
+        ...state.settings,
+        ...remoteSettings,
+      };
+    }
+  } catch (err) {
+    console.warn("Remote settings unavailable", err);
+  }
+
+  try {
+    const historyRes = await fetch(`${getApiBase()}/api/history`);
+    if (historyRes.ok) {
+      const remote = await historyRes.json();
+      if (Array.isArray(remote.items)) {
+        state.history = remote.items;
+      }
+    }
+  } catch (err) {
+    console.warn("Remote history unavailable", err);
+  }
 }
 
 function downloadConfig() {
@@ -1178,6 +1259,7 @@ function openSettings() {
 
 async function init() {
   loadLocalState();
+  await loadRemoteState();
   if (state.settings.theme !== "dark" && state.settings.theme !== "light") {
     state.settings.theme = "light";
   }
@@ -1185,6 +1267,8 @@ async function init() {
   state.settings.volume = normalizeVolume(state.settings.volume);
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(state.settings.hotkeys);
+  saveSettings();
+  saveHistory();
   applyTheme();
   bindEvents();
 

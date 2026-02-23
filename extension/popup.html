@@ -5,18 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Open-TTS</title>
     <style>
-      body { font-family: Arial, sans-serif; margin: 0; width: 340px; background: #f7f7f7; color: #1f2937; }
+      :root {
+        --bg: #f7f7f7;
+        --panel: #ffffff;
+        --text: #1f2937;
+        --muted: #6b7280;
+        --border: #d1d5db;
+        --speak: #2563eb;
+        --stop: #ef4444;
+        --settings: #111827;
+      }
+      :root[data-theme="dark"] {
+        --bg: #15181d;
+        --panel: #1f242b;
+        --text: #e7edf5;
+        --muted: #a7b2c2;
+        --border: #2d3440;
+        --speak: #3b82f6;
+        --stop: #f43f5e;
+        --settings: #374151;
+      }
+      body { font-family: Arial, sans-serif; margin: 0; width: 340px; background: var(--bg); color: var(--text); }
       .wrap { padding: 12px; display: grid; gap: 10px; }
       .row { display: flex; gap: 8px; }
       input, textarea, button { font: inherit; }
-      input, textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; }
+      input, textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px; background: var(--panel); color: var(--text); }
       textarea { min-height: 72px; resize: vertical; }
       .btn { border: 0; border-radius: 8px; padding: 8px 10px; cursor: pointer; }
-      .speak { background: #2563eb; color: #fff; }
-      .stop { background: #ef4444; color: #fff; }
-      .settings { background: #111827; color: #fff; }
-      .muted { font-size: 12px; color: #6b7280; }
-      .last { background: #fff; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; min-height: 36px; max-height: 90px; overflow: auto; }
+      .speak { background: var(--speak); color: #fff; }
+      .stop { background: var(--stop); color: #fff; }
+      .settings { background: var(--settings); color: #fff; }
+      .muted { font-size: 12px; color: var(--muted); }
+      .last { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 8px; min-height: 36px; max-height: 90px; overflow: auto; }
     </style>
   </head>
   <body>
