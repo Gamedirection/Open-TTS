@@ -58,11 +58,17 @@ function deriveMainSiteUrl(serverUrl) {
 }
 
 async function getRemoteSettings(serverUrl) {
+  const base = normalizeServerUrl(serverUrl);
+  const candidates = [`${base}/api/settings`, `${base}/settings`];
   try {
-    const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/settings`);
-    if (!res.ok) return {};
-    const data = await res.json();
-    return data && typeof data === "object" ? data : {};
+    for (const url of candidates) {
+      const res = await fetch(url);
+      if (res.status === 404) continue;
+      if (!res.ok) return {};
+      const data = await res.json();
+      return data && typeof data === "object" ? data : {};
+    }
+    return {};
   } catch (_err) {
     return {};
   }
@@ -77,17 +83,29 @@ async function putRemoteSettings(serverUrl, nextSettings) {
   }
   if (!Object.keys(payload).length) return {};
 
-  const res = await fetch(`${normalizeServerUrl(serverUrl)}/api/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Settings sync failed (${res.status})`);
+  const base = normalizeServerUrl(serverUrl);
+  const candidates = [`${base}/api/settings`, `${base}/settings`];
+  let lastStatus = 0;
+
+  for (const url of candidates) {
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 404) {
+      lastStatus = res.status;
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Settings sync failed (${res.status})`);
+    }
+    const saved = await res.json().catch(() => ({}));
+    return saved && typeof saved === "object" ? saved : {};
   }
-  const saved = await res.json().catch(() => ({}));
-  return saved && typeof saved === "object" ? saved : {};
+
+  throw new Error(`Settings sync failed (${lastStatus || 404})`);
 }
 
 async function appendHistory(serverUrl, entry) {
