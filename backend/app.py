@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import uuid
 import json
+import wave
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -28,6 +29,7 @@ DEFAULT_VOICE_BASE = os.getenv(
 )
 PIPER_BIN = os.getenv("PIPER_BIN", "piper")
 SPEAK_TIMEOUT_SECONDS = int(os.getenv("PIPER_TIMEOUT_SECONDS", "60"))
+PREPEND_SILENCE_MS = int(os.getenv("OPEN_TTS_PREPEND_SILENCE_MS", "350"))
 VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
 ALLOWED_DOWNLOAD_FORMATS = {"wav", "mp3", "ogg"}
 SUPERTONIC_VOICE_NAMES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
@@ -347,6 +349,23 @@ def normalize_speed(speed: float) -> float:
         speed = 1.0
     speed = max(0.5, min(speed, 2.0))
     return round(1.0 / speed, 3)
+
+
+def prepend_wav_silence(path: Path, silence_ms: int) -> None:
+    if silence_ms <= 0:
+        return
+    with wave.open(str(path), "rb") as src:
+        params = src.getparams()
+        frames = src.readframes(src.getnframes())
+        silent_frames = int(params.framerate * (silence_ms / 1000.0))
+        silence = b"\x00" * (silent_frames * params.nchannels * params.sampwidth)
+
+    tmp_path = path.with_suffix(".silence.tmp.wav")
+    with wave.open(str(tmp_path), "wb") as dst:
+        dst.setparams(params)
+        dst.writeframes(silence)
+        dst.writeframes(frames)
+    tmp_path.replace(path)
 
 
 def safe_audio_filename(name: str) -> str:
@@ -735,6 +754,12 @@ def speak():
             )
         except subprocess.TimeoutExpired:
             return jsonify({"error": "piper synthesis timed out"}), 504
+
+    try:
+        prepend_wav_silence(output_path, PREPEND_SILENCE_MS)
+    except Exception as exc:
+        # Do not fail synthesis when silence prepend fails.
+        print(f"[open-tts] warning: could not prepend silence: {exc}")
 
     return (
         jsonify(
