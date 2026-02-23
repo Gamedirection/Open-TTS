@@ -1,4 +1,13 @@
 const MENU_ID = "open_tts_read_selection";
+const SHARED_KEYS = [
+  "voice",
+  "speed",
+  "volume",
+  "downloadFormat",
+  "theme",
+  "autoPasteClipboard",
+  "hotkeys",
+];
 
 async function getSettings() {
   const data = await chrome.storage.sync.get({
@@ -18,7 +27,11 @@ async function getSettings() {
     await chrome.storage.sync.set({
       theme: merged.theme,
       voice: merged.voice || "",
-      speed: Number(merged.speed || 1.0)
+      speed: Number(merged.speed || 1.0),
+      volume: Number(merged.volume ?? 1.0),
+      downloadFormat: merged.downloadFormat || "wav",
+      autoPasteClipboard: Boolean(merged.autoPasteClipboard),
+      hotkeys: merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {},
     });
   }
   return merged;
@@ -49,6 +62,28 @@ async function getRemoteSettings(serverUrl) {
   } catch (_err) {
     return {};
   }
+}
+
+async function putRemoteSettings(serverUrl, nextSettings) {
+  const payload = {};
+  for (const key of SHARED_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(nextSettings, key)) {
+      payload[key] = nextSettings[key];
+    }
+  }
+  if (!Object.keys(payload).length) return {};
+
+  const res = await fetch(`${normalizeUrl(serverUrl)}/api/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Settings sync failed (${res.status})`);
+  }
+  const saved = await res.json().catch(() => ({}));
+  return saved && typeof saved === "object" ? saved : {};
 }
 
 async function appendHistory(serverUrl, entry) {
@@ -144,9 +179,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         const mainSiteUrl = hasMainSiteUrl
           ? normalizeUrl(message.mainSiteUrl)
           : deriveMainSiteUrl(serverUrl);
-        const theme = message.theme || existing.theme || "light";
-        await chrome.storage.sync.set({ serverUrl, mainSiteUrl, theme });
-        sendResponse({ ok: true, serverUrl, mainSiteUrl, theme });
+        const localToSave = { serverUrl, mainSiteUrl };
+        for (const key of SHARED_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(message, key)) {
+            localToSave[key] = message[key];
+          }
+        }
+
+        const remoteSaved = await putRemoteSettings(serverUrl, localToSave);
+        const merged = {
+          ...existing,
+          ...localToSave,
+          ...remoteSaved,
+          serverUrl,
+          mainSiteUrl,
+        };
+        merged.theme = String(merged.theme || "light").toLowerCase() === "dark" ? "dark" : "light";
+        merged.speed = Number(merged.speed || 1.0);
+        merged.volume = Number(merged.volume ?? 1.0);
+        merged.downloadFormat = ["wav", "mp3", "ogg"].includes(String(merged.downloadFormat || "").toLowerCase())
+          ? String(merged.downloadFormat).toLowerCase()
+          : "wav";
+        merged.autoPasteClipboard = Boolean(merged.autoPasteClipboard);
+        merged.hotkeys = merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {};
+
+        await chrome.storage.sync.set({
+          serverUrl: merged.serverUrl,
+          mainSiteUrl: merged.mainSiteUrl,
+          theme: merged.theme,
+          voice: merged.voice || "",
+          speed: merged.speed,
+          volume: merged.volume,
+          downloadFormat: merged.downloadFormat,
+          autoPasteClipboard: merged.autoPasteClipboard,
+          hotkeys: merged.hotkeys,
+        });
+        sendResponse({ ok: true, ...merged });
         return;
       }
       if (message?.type === "open_tts_speak") {
