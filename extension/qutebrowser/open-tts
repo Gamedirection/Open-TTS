@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+API_URL="${OPEN_TTS_API:-http://localhost:3016/api/speak}"
+
+TEXT="${QUTE_SELECTED_TEXT:-}"
+if [[ "${1:-}" == "--page" ]]; then
+  TEXT="${QUTE_URL:-}"
+fi
+
+if [[ -z "${TEXT}" ]]; then
+  if [[ -n "${QUTE_FIFO:-}" ]]; then
+    echo "message-info 'Open-TTS: no selected text.'" > "${QUTE_FIFO}"
+  fi
+  exit 0
+fi
+
+export TEXT
+payload="$(
+  python3 - <<'PY'
+import json, os
+print(json.dumps({"text": os.environ.get("TEXT", "")}))
+PY
+)"
+
+curl -sS -H "Content-Type: application/json" -d "${payload}" "${API_URL}" >/dev/null
+
+if [[ -n "${QUTE_FIFO:-}" ]]; then
+  echo "message-info 'Open-TTS: sent to server.'" > "${QUTE_FIFO}"
+fi
