@@ -102,6 +102,39 @@ async function playPopupAudio(audioUrl) {
   await currentAudio.play();
 }
 
+async function speakCurrentInput() {
+  const text = (textInput.value || "").trim();
+  if (!text) return;
+  speakBtn.disabled = true;
+  status("Generating audio...");
+  try {
+    const { audioUrl } = await speak(text);
+    await playPopupAudio(audioUrl);
+    status("Playing.");
+    await refreshUI();
+  } catch (err) {
+    status(`Error: ${err.message}`);
+  } finally {
+    speakBtn.disabled = false;
+  }
+}
+
+async function maybeAutoPasteAndSpeakOnOpen(settings) {
+  if (!settings?.autoPasteClipboard) return;
+  if ((textInput.value || "").trim()) return;
+  if (!navigator.clipboard?.readText) return;
+  try {
+    const clip = await navigator.clipboard.readText();
+    const text = (clip || "").trim();
+    if (!text) return;
+    textInput.value = text;
+    await speakCurrentInput();
+    status("Auto-pasted and speaking clipboard.");
+  } catch (_err) {
+    // Clipboard access can fail due to browser permission policy.
+  }
+}
+
 async function refreshUI() {
   const settings = await getSettings();
   serverUrlInput.value = settings.serverUrl;
@@ -129,6 +162,7 @@ async function refreshUI() {
 
   const last = await getLastEntry(settings);
   lastEntry.textContent = last.lastEntry || "No entry yet.";
+  return settings;
 }
 
 async function saveSettingsFromInputs() {
@@ -165,20 +199,7 @@ serverUrlInput.addEventListener("change", async () => {
 });
 
 speakBtn.addEventListener("click", async () => {
-  const text = (textInput.value || "").trim();
-  if (!text) return;
-  speakBtn.disabled = true;
-  status("Generating audio...");
-  try {
-    const { audioUrl } = await speak(text);
-    await playPopupAudio(audioUrl);
-    status("Playing.");
-    await refreshUI();
-  } catch (err) {
-    status(`Error: ${err.message}`);
-  } finally {
-    speakBtn.disabled = false;
-  }
+  await speakCurrentInput();
 });
 
 stopBtn.addEventListener("click", async () => {
@@ -306,4 +327,13 @@ configFileInput?.addEventListener("change", async () => {
   }
 });
 
-refreshUI().catch((err) => status(err.message));
+async function init() {
+  try {
+    const settings = await refreshUI();
+    await maybeAutoPasteAndSpeakOnOpen(settings);
+  } catch (err) {
+    status(err.message);
+  }
+}
+
+init();
