@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  api:
+    image: ${API_IMAGE:-tts-api:local}
+    ports:
+      - target: 5000
+        published: ${API_PORT:-3016}
+        protocol: tcp
+        mode: host
+    environment:
+      PIPER_VOICES_DIR: ${PIPER_VOICES_DIR:-/data/voices}
+      PIPER_AUDIO_DIR: ${PIPER_AUDIO_DIR:-/data/audio}
+      PIPER_DEFAULT_VOICE: ${PIPER_DEFAULT_VOICE:-en_US-lessac-medium}
+      PIPER_DEFAULT_VOICE_BASE: ${PIPER_DEFAULT_VOICE_BASE:-https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac/medium}
+      PIPER_TIMEOUT_SECONDS: ${PIPER_TIMEOUT_SECONDS:-60}
+    volumes:
+      - piper_voices:/data/voices
+      - piper_audio:/data/audio
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  web:
+    image: ${WEB_IMAGE:-tts-web:local}
+    ports:
+      - target: 80
+        published: ${WEB_PORT:-3015}
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  swagger:
+    image: swaggerapi/swagger-ui:latest
+    ports:
+      - target: 8080
+        published: ${SWAGGER_PORT:-3017}
+        protocol: tcp
+        mode: host
+    environment:
+      SWAGGER_JSON: /openapi.json
+      BASE_URL: /
+    configs:
+      - source: openapi_static_json
+        target: /openapi.json
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  piper_voices:
+  piper_audio:
+
+configs:
+  openapi_static_json:
+    file: ./backend/openapi.static.json

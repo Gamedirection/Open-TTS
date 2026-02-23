@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open-TTS</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Pinned Messages">
+        <div class="sidebar-header">
+          <h2>Pinned</h2>
+          <button id="settingsBtn" class="icon-btn" aria-label="Open settings">⚙</button>
+        </div>
+        <div id="pinnedList" class="pinned-list" tabindex="0"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <h1>Open-TTS</h1>
+          <p>Hotkeys are customizable in Settings (default: V focus input, S stop, Enter send)</p>
+        </header>
+
+        <section id="chatList" class="chat-list" aria-label="Chat messages"></section>
+
+        <div id="visualizer" class="visualizer" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div id="loadingIndicator" class="loading-indicator" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Preparing audio...</span>
+        </div>
+        <div class="playback-controls">
+          <button id="stopAudioBtn" type="button" class="stop-btn">Stop</button>
+          <label class="volume-control" for="volumeInput">
+            <span>Volume</span>
+            <input id="volumeInput" type="range" min="0" max="1" step="0.01" />
+            <output id="volumeValue">100%</output>
+          </label>
+        </div>
+
+        <form id="chatForm" class="composer">
+          <label for="textInput" class="sr-only">Text to speak</label>
+          <textarea
+            id="textInput"
+            placeholder="Paste text and press Enter to speak (Ctrl+Enter for new line)"
+            rows="3"
+            autocomplete="off"
+            required
+          ></textarea>
+          <button type="submit">Speak</button>
+        </form>
+      </main>
+    </div>
+
+    <dialog id="settingsDialog">
+      <form method="dialog" id="settingsForm" class="settings-form">
+        <h3>Settings</h3>
+        <label>
+          Server URL
+          <input id="serverUrlInput" type="url" placeholder="Leave empty to use same host (/api)" />
+        </label>
+        <label>
+          Voice
+          <select id="voiceSelect"></select>
+        </label>
+        <label>
+          Speed
+          <input id="speedInput" type="range" min="0.5" max="2" step="0.1" />
+          <output id="speedValue">1.0x</output>
+        </label>
+        <label>
+          Default download format
+          <select id="downloadFormatSelect">
+            <option value="wav">WAV</option>
+            <option value="mp3">MP3</option>
+            <option value="ogg">OGG</option>
+          </select>
+        </label>
+        <label class="toggle-row" for="darkModeInput">
+          <span>Dark mode</span>
+          <span class="toggle-switch">
+            <input id="darkModeInput" type="checkbox" />
+            <span class="toggle-slider" aria-hidden="true"></span>
+          </span>
+        </label>
+        <label class="toggle-row" for="autoPasteInput">
+          <span>Auto-paste clipboard on input focus</span>
+          <span class="toggle-switch">
+            <input id="autoPasteInput" type="checkbox" />
+            <span class="toggle-slider" aria-hidden="true"></span>
+          </span>
+        </label>
+        <section class="model-manager" aria-label="Voice models">
+          <div class="model-manager-head">
+            <strong>Voice Models</strong>
+            <button type="button" id="refreshModelsBtn">Refresh</button>
+          </div>
+          <div id="modelsList" class="models-list"></div>
+        </section>
+        <section class="model-manager" aria-label="Hotkeys">
+          <div class="model-manager-head">
+            <strong>Hotkeys</strong>
+          </div>
+          <div class="hotkey-grid">
+            <label>Focus Input <input id="hotkeyFocusInput" type="text" placeholder="v" /></label>
+            <label>Stop Audio <input id="hotkeyStopAudio" type="text" placeholder="s" /></label>
+            <label>Send Message <input id="hotkeySendMessage" type="text" placeholder="enter" /></label>
+            <label>Open Settings <input id="hotkeyOpenSettings" type="text" placeholder="ctrl+," /></label>
+            <label>Move Up <input id="hotkeyMoveUp" type="text" placeholder="arrowup" /></label>
+            <label>Move Down <input id="hotkeyMoveDown" type="text" placeholder="arrowdown" /></label>
+            <label>Play Focused <input id="hotkeyPlayFocused" type="text" placeholder="enter" /></label>
+            <label>Pin Focused <input id="hotkeyPinFocused" type="text" placeholder="p" /></label>
+            <label>Delete Focused <input id="hotkeyDeleteFocused" type="text" placeholder="delete" /></label>
+          </div>
+        </section>
+        <section class="model-manager" aria-label="Config">
+          <div class="model-manager-head">
+            <strong>Config</strong>
+          </div>
+          <div class="config-row">
+            <button type="button" id="downloadConfigBtn">Download Config</button>
+            <button type="button" id="uploadConfigBtn">Upload Config</button>
+            <input id="configFileInput" type="file" accept="application/json" hidden />
+          </div>
+        </section>
+        <section class="model-manager" aria-label="Bulk delete">
+          <div class="model-manager-head">
+            <strong>Bulk Delete</strong>
+          </div>
+          <div class="config-row">
+            <button type="button" id="deleteAllUnpinnedBtn">Delete All Unpinned</button>
+            <button type="button" id="deleteAllPinnedBtn">Delete All Pinned</button>
+          </div>
+        </section>
+        <section class="model-manager" aria-label="Credits">
+          <div class="model-manager-head">
+            <strong>Credits</strong>
+          </div>
+          <small>Created by Alex Sierputowski at <a href="https://gamedirection.net" target="_blank" rel="noreferrer">GameDirection.net</a>.</small>
+          <small>Let's chat at <a href="https://join.gamedirection.net" target="_blank" rel="noreferrer">join.gamedirection.net</a>.</small>
+          <small>Version: <code>0.3.0</code></small>
+          <small>GitHub: <a href="https://github.com/your-org/your-repo" target="_blank" rel="noreferrer">https://github.com/your-org/your-repo</a></small>
+        </section>
+        <div class="settings-actions">
+          <button value="test" type="button" id="testVoiceBtn">Test Voice</button>
+          <button value="cancel" type="button" id="cancelSettings">Cancel</button>
+          <button value="default" type="submit">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Open-TTS Companion",
+  "version": "0.3.0",
+  "description": "Read selected text via your Open-TTS server and use a compact popup player.",
+  "permissions": ["storage", "contextMenus", "tabs", "scripting", "activeTab"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open-TTS",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "open-tts@gamedirection.net"
+    }
+  }
+}

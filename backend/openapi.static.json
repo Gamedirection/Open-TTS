@@ -1,0 +1,190 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Open-TTS API",
+    "version": "0.3.0",
+    "description": "API for Piper-based text-to-speech, voice management, and audio downloads."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3016"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Healthy"
+          }
+        }
+      }
+    },
+    "/api/voices": {
+      "get": {
+        "summary": "List installed voices and catalog",
+        "responses": {
+          "200": {
+            "description": "Voices payload"
+          }
+        }
+      }
+    },
+    "/api/voices/install": {
+      "post": {
+        "summary": "Install a voice from catalog",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "voice"
+                ],
+                "properties": {
+                  "voice": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Voice installed"
+          }
+        }
+      }
+    },
+    "/api/voices/{voice_id}": {
+      "delete": {
+        "summary": "Uninstall a voice",
+        "parameters": [
+          {
+            "name": "voice_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Voice removed"
+          }
+        }
+      }
+    },
+    "/api/speak": {
+      "post": {
+        "summary": "Generate speech audio",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "voice": {
+                    "type": "string"
+                  },
+                  "speed": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Audio generated"
+          }
+        }
+      }
+    },
+    "/api/audio/{name}": {
+      "get": {
+        "summary": "Read generated WAV",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WAV audio"
+          }
+        }
+      }
+    },
+    "/api/download/{name}": {
+      "get": {
+        "summary": "Download generated audio as wav/mp3/ogg",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "wav",
+                "mp3",
+                "ogg"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Download"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "Dynamic OpenAPI document",
+        "responses": {
+          "200": {
+            "description": "OpenAPI JSON"
+          }
+        }
+      }
+    },
+    "/api/docs": {
+      "get": {
+        "summary": "In-app Swagger UI",
+        "responses": {
+          "200": {
+            "description": "Swagger HTML"
+          }
+        }
+      }
+    }
+  }
+}
