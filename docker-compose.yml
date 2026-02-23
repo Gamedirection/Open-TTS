@@ -1,7 +1,6 @@
 services:
   api:
-    build: ./backend
-    image: ${API_IMAGE:-tts-api:local}
+    image: ${API_IMAGE:-ghcr.io/gamedirection/open-tts-api:0.4.0}
     ports:
       - "${API_PORT:-3016}:5000"
     environment:
@@ -15,8 +14,7 @@ services:
       - piper_audio:/data/audio
 
   web:
-    build: ./frontend
-    image: ${WEB_IMAGE:-tts-web:local}
+    image: ${WEB_IMAGE:-ghcr.io/gamedirection/open-tts-web:0.4.0}
     ports:
       - "${WEB_PORT:-3015}:80"
     depends_on:
