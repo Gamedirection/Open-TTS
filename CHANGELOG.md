@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-03-03
+- Switched web app persistence to local-only per browser/device for history and settings.
+- Removed web history sync and extension history sync with `/api/history`.
+- Switched extension settings storage from `chrome.storage.sync` to `chrome.storage.local`.
+- Cleared server-side shared history and kept existing API endpoints for optional integrations.
+- Added dialogue voice routing features:
+- Configurable Narrator, Male, Female, and Speaker voices.
+- Dynamic speaker profiles with add/remove support in settings.
+- Quote-first parsing behavior:
+- Speaker voice applies to quoted text only.
+- Non-quoted text defaults to narrator voice.
+- Added auto-generated dialog command aliases from speaker profiles and names.
+- Added pill-based dialog command manager:
+- Preloaded defaults, add/remove custom aliases, reset-to-defaults button.
+- Added per-voice dropdown `Test Voice` buttons in settings.
+- Improved first-play reliability:
+- Added voice warm-up before first playback.
+- Added narrator chunking for long submissions (paragraphs / sentence groups).
+- Added pause between voice changes to improve fluidity and avoid overlap artifacts.
+- Added direct OpenAPI access links in web settings credits (`/api/docs`, `/api/openapi.json`).
+- Updated README and release docs to reflect local-only behavior and new dialogue workflow.
+
 ## [0.4.0] - 2026-02-23
 - Added Supertonic voice provider support in backend synthesis and voice listing.
 - Added support for Supertonic voice IDs in `/api/voices`, `/api/voices/install`, and `/api/voices/{voice_id}`.

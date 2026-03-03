@@ -2,7 +2,7 @@ const MENU_ID = "open_tts_read_selection";
 const SHARED_KEYS = ["voice", "speed", "volume", "downloadFormat", "theme", "autoPasteClipboard", "hotkeys", "prependSilenceMs"];
 
 async function getSettings() {
-  const data = await chrome.storage.sync.get({
+  const data = await chrome.storage.local.get({
     serverUrl: "http://localhost:3016",
     theme: "dark",
     voice: "",
@@ -36,18 +36,6 @@ function normalizeUrl(url) {
 
 function normalizeServerUrl(url) {
   return normalizeUrl(url).replace(/\/api$/i, "");
-}
-
-async function appendHistory(serverUrl, entry) {
-  try {
-    await fetch(`${normalizeServerUrl(serverUrl)}/api/history`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(entry)
-    });
-  } catch (_err) {
-    // non-fatal; local last-entry still updates
-  }
 }
 
 async function ensureContentScript(tabId) {
@@ -106,14 +94,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       type: "open_tts_play_audio",
       audioUrl
     });
-    await appendHistory(settings.serverUrl, {
-      text,
-      createdAt: new Date().toISOString(),
-      voice: settings.voice || "",
-      speed: Number(settings.speed || 1),
-      audioUrl,
-      pinned: false
-    });
     await chrome.storage.local.set({
       lastEntry: text,
       lastEntryAt: new Date().toISOString()
@@ -155,7 +135,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         merged.hotkeys = merged.hotkeys && typeof merged.hotkeys === "object" ? merged.hotkeys : {};
         merged.prependSilenceMs = Math.max(0, Math.min(3000, Number(merged.prependSilenceMs ?? 0) || 0));
 
-        await chrome.storage.sync.set({
+        await chrome.storage.local.set({
           serverUrl: merged.serverUrl,
           theme: merged.theme,
           voice: merged.voice || "",
@@ -183,14 +163,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           settings.speed,
           settings.prependSilenceMs
         );
-        await appendHistory(settings.serverUrl, {
-          text,
-          createdAt: new Date().toISOString(),
-          voice: settings.voice || "",
-          speed: Number(settings.speed || 1),
-          audioUrl: result.audioUrl,
-          pinned: false
-        });
         await chrome.storage.local.set({
           lastEntry: text,
           lastEntryAt: new Date().toISOString()

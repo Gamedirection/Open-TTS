@@ -90,23 +90,7 @@ async function setSettings(next) {
   return response;
 }
 
-async function getLastEntry(settings) {
-  try {
-    const base = normalize(settings.serverUrl || "");
-    if (base) {
-      const res = await fetch(`${base}/api/history`);
-      if (res.ok) {
-        const data = await res.json();
-        const items = Array.isArray(data.items) ? data.items : [];
-        if (items.length) {
-          const last = items[items.length - 1];
-          return { lastEntry: last.text || "", lastEntryAt: last.createdAt || "" };
-        }
-      }
-    }
-  } catch (_err) {
-    // fallback to local value
-  }
+async function getLastEntry() {
   const local = await chrome.storage.local.get({ lastEntry: "", lastEntryAt: "" });
   return local;
 }
@@ -205,7 +189,7 @@ async function refreshUI() {
     // ignore voice-list errors in popup UI
   }
 
-  const last = await getLastEntry(settings);
+  const last = await getLastEntry();
   lastEntry.textContent = last.lastEntry || "No entry yet.";
   return settings;
 }

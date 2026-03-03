@@ -327,6 +327,23 @@ textarea {
   color: var(--text);
 }
 
+.voice-select-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.voice-select-row button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .toggle-row {
   display: flex !important;
   justify-content: space-between;
@@ -441,6 +458,66 @@ textarea {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+.config-row input {
+  min-width: 260px;
+  flex: 1 1 260px;
+}
+
+.dialog-command-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.dialog-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.dialog-empty {
+  color: var(--muted);
+}
+
+.dialog-pill.auto {
+  opacity: 0.9;
+  cursor: default;
+}
+
+.speaker-profiles-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.speaker-profile-row {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.speaker-profile-row .speaker-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.speaker-profile-row .voice-select-row {
+  grid-template-columns: 1fr auto;
+}
+
+@media (max-width: 900px) {
+  .speaker-profile-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .settings-actions {

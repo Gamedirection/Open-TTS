@@ -1,6 +1,5 @@
 const STORAGE_KEY = "piper_chat_history_v1";
 const SETTINGS_KEY = "piper_chat_settings_v1";
-const REMOTE_SYNC_DELAY_MS = 400;
 const HOTKEY_DEFAULTS = Object.freeze({
   focusInput: "v",
   stopAudio: "s",
@@ -23,6 +22,40 @@ const HOTKEY_INPUT_IDS = Object.freeze({
   pinFocused: "hotkeyPinFocused",
   deleteFocused: "hotkeyDeleteFocused",
 });
+const DEFAULT_SPEAKER_COUNT = 4;
+const VOICE_SWITCH_PAUSE_MS = 280;
+const DIALOG_COMMAND_DEFAULTS = Object.freeze([
+  { alias: "m", target: "male" },
+  { alias: "male", target: "male" },
+  { alias: "he", target: "male" },
+  { alias: "he said", target: "male" },
+  { alias: "f", target: "female" },
+  { alias: "female", target: "female" },
+  { alias: "she", target: "female" },
+  { alias: "she said", target: "female" },
+  { alias: "n", target: "narrator" },
+  { alias: "narrator", target: "narrator" },
+  { alias: "speaker 1", target: "speaker1" },
+  { alias: "s1", target: "speaker1" },
+  { alias: "speaker 2", target: "speaker2" },
+  { alias: "s2", target: "speaker2" },
+  { alias: "speaker 3", target: "speaker3" },
+  { alias: "s3", target: "speaker3" },
+  { alias: "speaker 4", target: "speaker4" },
+  { alias: "s4", target: "speaker4" },
+]);
+
+function defaultSpeakerProfiles() {
+  return Array.from({ length: DEFAULT_SPEAKER_COUNT }, (_v, idx) => ({
+    id: `spk-${idx + 1}`,
+    name: `Speaker ${idx + 1}`,
+    voice: "",
+  }));
+}
+
+function defaultDialogCommands() {
+  return DIALOG_COMMAND_DEFAULTS.map((item) => ({ ...item }));
+}
 
 const state = {
   history: [],
@@ -38,12 +71,19 @@ const state = {
     serverUrl: "",
     voice: "",
     speed: 1.0,
-    prependSilenceMs: 0,
+    prependSilenceMs: 250,
     volume: 1.0,
     downloadFormat: "wav",
     theme: "dark",
     autoPasteClipboard: false,
     hotkeys: { ...HOTKEY_DEFAULTS },
+    dialogueVoices: {
+      narrator: "",
+      male: "",
+      female: "",
+    },
+    speakerProfiles: defaultSpeakerProfiles(),
+    dialogCommands: defaultDialogCommands(),
   },
 };
 
@@ -58,6 +98,15 @@ const settingsForm = document.getElementById("settingsForm");
 const settingsSyncStatus = document.getElementById("settingsSyncStatus");
 const serverUrlInput = document.getElementById("serverUrlInput");
 const voiceSelect = document.getElementById("voiceSelect");
+const narratorVoiceSelect = document.getElementById("narratorVoiceSelect");
+const maleVoiceSelect = document.getElementById("maleVoiceSelect");
+const femaleVoiceSelect = document.getElementById("femaleVoiceSelect");
+const speakerProfilesList = document.getElementById("speakerProfilesList");
+const addSpeakerBtn = document.getElementById("addSpeakerBtn");
+const dialogCommandInput = document.getElementById("dialogCommandInput");
+const addDialogCommandBtn = document.getElementById("addDialogCommandBtn");
+const resetDialogCommandsBtn = document.getElementById("resetDialogCommandsBtn");
+const dialogCommandPills = document.getElementById("dialogCommandPills");
 const speedInput = document.getElementById("speedInput");
 const speedValue = document.getElementById("speedValue");
 const prependSilenceInput = document.getElementById("prependSilenceInput");
@@ -67,7 +116,6 @@ const darkModeInput = document.getElementById("darkModeInput");
 const autoPasteInput = document.getElementById("autoPasteInput");
 const modelsList = document.getElementById("modelsList");
 const refreshModelsBtn = document.getElementById("refreshModelsBtn");
-const testVoiceBtn = document.getElementById("testVoiceBtn");
 const loadingIndicator = document.getElementById("loadingIndicator");
 const speakButton = document.getElementById("speakStopBtn");
 const volumeInput = document.getElementById("volumeInput");
@@ -80,16 +128,24 @@ const configFileInput = document.getElementById("configFileInput");
 const deleteAllUnpinnedBtn = document.getElementById("deleteAllUnpinnedBtn");
 const deleteAllPinnedBtn = document.getElementById("deleteAllPinnedBtn");
 let lastClipboardAutopasteMs = 0;
-let settingsSyncTimer = null;
-let historySyncTimer = null;
-let lastSettingsSyncAt = null;
+const warmedVoices = new Set();
+let nextSpeakerId = 1;
+
+function uid() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function uid() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+function syncSpeakerIdCounter() {
+  let maxId = 0;
+  state.settings.speakerProfiles.forEach((profile) => {
+    const m = String(profile.id || "").match(/^spk-(\d+)$/);
+    if (m) maxId = Math.max(maxId, Number(m[1]));
+  });
+  nextSpeakerId = Math.max(nextSpeakerId, maxId + 1);
 }
 
 function loadLocalState() {
@@ -114,34 +170,14 @@ function loadLocalState() {
 
 function saveHistory() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.history));
-  queueHistorySync();
 }
 
 function saveSettings() {
   persistLocalSettings();
-  queueSettingsSync();
 }
 
 function persistLocalSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-}
-
-function queueSettingsSync() {
-  clearTimeout(settingsSyncTimer);
-  settingsSyncTimer = setTimeout(() => {
-    syncSettingsToServer().catch((err) => {
-      console.warn("Settings sync failed", err);
-    });
-  }, REMOTE_SYNC_DELAY_MS);
-}
-
-function queueHistorySync() {
-  clearTimeout(historySyncTimer);
-  historySyncTimer = setTimeout(() => {
-    syncHistoryToServer().catch((err) => {
-      console.warn("History sync failed", err);
-    });
-  }, REMOTE_SYNC_DELAY_MS);
 }
 
 function setLoading(isLoading) {
@@ -292,6 +328,181 @@ function readHotkeysFromInputs() {
   return normalizeHotkeysObject(next);
 }
 
+function normalizeDialogueVoices(incoming) {
+  const raw = incoming && typeof incoming === "object" ? incoming : {};
+  return {
+    narrator: String(raw.narrator || "").trim(),
+    male: String(raw.male || "").trim(),
+    female: String(raw.female || "").trim(),
+  };
+}
+
+function normalizeSpeakerProfiles(incoming) {
+  const list = Array.isArray(incoming) ? incoming : [];
+  if (!list.length) return defaultSpeakerProfiles();
+  return list.map((item, idx) => {
+    const fallback = `Speaker ${idx + 1}`;
+    const id = String(item.id || `spk-${idx + 1}`).trim() || `spk-${idx + 1}`;
+    const name = String(item.name || fallback).trim() || fallback;
+    const voice = String(item.voice || "").trim();
+    return { id, name, voice };
+  });
+}
+
+function normalizeDialogCommandTarget(raw) {
+  const compact = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  if (!compact) return "";
+  if (compact === "m" || compact === "male") return "male";
+  if (compact === "f" || compact === "female") return "female";
+  if (compact === "n" || compact === "narrator") return "narrator";
+  const speakerMatch = compact.match(/^(s|speaker)(\d+)$/);
+  if (speakerMatch) return `speaker${Number(speakerMatch[2])}`;
+  return "";
+}
+
+function normalizeDialogCommands(incoming, fallbackToDefaults = true) {
+  if (!Array.isArray(incoming)) {
+    return fallbackToDefaults ? defaultDialogCommands() : [];
+  }
+  const seen = new Set();
+  const normalized = [];
+  incoming.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const alias = String(item.alias || "")
+      .trim()
+      .toLowerCase();
+    const target = normalizeDialogCommandTarget(item.target);
+    if (!alias || !target) return;
+    const key = `${alias}|${target}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    normalized.push({ alias, target });
+  });
+  return normalized;
+}
+
+function resolveNarratorVoice() {
+  return state.settings.dialogueVoices?.narrator || state.settings.voice || "";
+}
+
+function resolveGenderVoice(kind) {
+  if (kind === "male") return state.settings.dialogueVoices?.male || resolveNarratorVoice();
+  if (kind === "female") return state.settings.dialogueVoices?.female || resolveNarratorVoice();
+  return resolveNarratorVoice();
+}
+
+function resolveSpeakerVoice(slotIndex) {
+  const profile = state.settings.speakerProfiles?.[slotIndex];
+  return profile?.voice || resolveNarratorVoice();
+}
+
+function resolveVoiceByTarget(target) {
+  if (target === "male") return resolveGenderVoice("male");
+  if (target === "female") return resolveGenderVoice("female");
+  if (target === "narrator") return resolveNarratorVoice();
+  const match = String(target || "").match(/^speaker(\d+)$/i);
+  if (match) return resolveSpeakerVoice(Math.max(0, Number(match[1]) - 1));
+  return resolveNarratorVoice();
+}
+
+function autoDialogCommandsFromSpeakers() {
+  const commands = [];
+  state.settings.speakerProfiles.forEach((profile, idx) => {
+    const target = `speaker${idx + 1}`;
+    const alias1 = `speaker ${idx + 1}`;
+    const alias2 = `s${idx + 1}`;
+    commands.push({ alias: alias1, target, auto: true });
+    commands.push({ alias: alias2, target, auto: true });
+    const customName = (profile.name || "").trim().toLowerCase();
+    if (customName) {
+      commands.push({ alias: customName, target, auto: true });
+      commands.push({ alias: `${customName} said`, target, auto: true });
+    }
+  });
+  return commands;
+}
+
+function renderDialogCommandPills() {
+  if (!dialogCommandPills) return;
+  const userCommands = normalizeDialogCommands(state.settings.dialogCommands, false);
+  const commands = [...userCommands, ...autoDialogCommandsFromSpeakers()];
+  if (!commands.length) {
+    dialogCommandPills.innerHTML = '<small class="dialog-empty">No commands configured.</small>';
+    return;
+  }
+  dialogCommandPills.innerHTML = commands
+    .map(
+      (item, idx) =>
+        item.auto
+          ? `<span class="dialog-pill auto" title="Auto command from speaker profile">${escapeHtml(item.alias)} -> ${escapeHtml(
+              item.target
+            )}</span>`
+          : `<button type="button" class="dialog-pill" data-remove-dialog-index="${idx}" title="Remove command">${escapeHtml(
+              item.alias
+            )} -> ${escapeHtml(item.target)} ×</button>`
+    )
+    .join("");
+}
+
+function parseDialogCommandInput(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return { ok: false, error: "Enter a command alias." };
+  const parts = text.includes("=") ? text.split("=") : text.split("->");
+  if (parts.length !== 2) {
+    return { ok: false, error: 'Use format "alias=target", e.g. boss=male or lead=speaker1.' };
+  }
+  const alias = String(parts[0] || "")
+    .trim()
+    .toLowerCase();
+  const target = normalizeDialogCommandTarget(parts[1] || "");
+  if (!alias) return { ok: false, error: "Alias cannot be empty." };
+  if (!target) return { ok: false, error: "Target must be one of narrator, male, female, speaker1..speakerN." };
+  return { ok: true, item: { alias, target } };
+}
+
+function readDialogueSettingsFromInputs() {
+  const dialogueVoices = normalizeDialogueVoices({
+    narrator: narratorVoiceSelect?.value || "",
+    male: maleVoiceSelect?.value || "",
+    female: femaleVoiceSelect?.value || "",
+  });
+  const speakerProfiles = Array.from(document.querySelectorAll(".speaker-profile-row")).map((row, idx) => ({
+    id: row.getAttribute("data-speaker-id") || `spk-${idx + 1}`,
+    name: String(row.querySelector("[data-speaker-name]")?.value || `Speaker ${idx + 1}`).trim() || `Speaker ${idx + 1}`,
+    voice: String(row.querySelector("[data-speaker-voice]")?.value || state.settings.voice).trim(),
+  }));
+  return { dialogueVoices, speakerProfiles };
+}
+
+function renderSpeakerProfilesInputs() {
+  if (!speakerProfilesList) return;
+  speakerProfilesList.innerHTML = state.settings.speakerProfiles
+    .map((profile, idx) => {
+      const selectId = `speakerVoiceSelect-${escapeHtml(profile.id)}`;
+      return `<div class="speaker-profile-row" data-speaker-id="${escapeHtml(profile.id)}">
+        <div class="speaker-label">Speaker ${idx + 1}</div>
+        <input type="text" data-speaker-name value="${escapeHtml(profile.name)}" placeholder="Speaker ${idx + 1}" />
+        <div class="voice-select-row">
+          <select id="${selectId}" data-speaker-voice></select>
+          <button type="button" data-test-voice-target="${selectId}">Test Voice</button>
+        </div>
+        <button type="button" data-remove-speaker-id="${escapeHtml(profile.id)}">Remove</button>
+      </div>`;
+    })
+    .join("");
+}
+
+function applyDialogueSettingsToInputs() {
+  if (narratorVoiceSelect) narratorVoiceSelect.value = state.settings.dialogueVoices.narrator || state.settings.voice;
+  if (maleVoiceSelect) maleVoiceSelect.value = state.settings.dialogueVoices.male || state.settings.voice;
+  if (femaleVoiceSelect) femaleVoiceSelect.value = state.settings.dialogueVoices.female || state.settings.voice;
+  renderSpeakerProfilesInputs();
+  renderDialogCommandPills();
+}
+
 function getConfigForExport() {
   return {
     version: 1,
@@ -305,81 +516,12 @@ function getConfigForExport() {
       downloadFormat: state.settings.downloadFormat,
       theme: state.settings.theme,
       autoPasteClipboard: state.settings.autoPasteClipboard,
+      dialogueVoices: state.settings.dialogueVoices,
+      speakerProfiles: state.settings.speakerProfiles,
+      dialogCommands: state.settings.dialogCommands,
     },
     hotkeys: state.settings.hotkeys,
   };
-}
-
-function getSharedSettingsPayload() {
-  return {
-    serverUrl: state.settings.serverUrl,
-    voice: state.settings.voice,
-    speed: state.settings.speed,
-    prependSilenceMs: state.settings.prependSilenceMs,
-    volume: state.settings.volume,
-    downloadFormat: state.settings.downloadFormat,
-    theme: state.settings.theme,
-    autoPasteClipboard: state.settings.autoPasteClipboard,
-    hotkeys: state.settings.hotkeys,
-  };
-}
-
-async function syncSettingsToServer() {
-  const res = await fetch(`${getApiBase()}/api/settings`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(getSharedSettingsPayload()),
-  });
-  if (!res.ok) throw new Error(`settings sync failed (${res.status})`);
-  const saved = await res.json();
-  state.settings = {
-    ...state.settings,
-    ...saved,
-    hotkeys: normalizeHotkeysObject(saved.hotkeys ?? state.settings.hotkeys),
-  };
-  state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
-  state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
-  state.settings.volume = normalizeVolume(state.settings.volume);
-  state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
-  persistLocalSettings();
-  lastSettingsSyncAt = nowIso();
-  updateSettingsSyncStatus(true);
-}
-
-async function syncHistoryToServer() {
-  const res = await fetch(`${getApiBase()}/api/history`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(state.history),
-  });
-  if (!res.ok) throw new Error(`history sync failed (${res.status})`);
-}
-
-async function loadRemoteState() {
-  try {
-    const settingsRes = await fetch(`${getApiBase()}/api/settings`);
-    if (settingsRes.ok) {
-      const remoteSettings = await settingsRes.json();
-      state.settings = {
-        ...state.settings,
-        ...remoteSettings,
-      };
-    }
-  } catch (err) {
-    console.warn("Remote settings unavailable", err);
-  }
-
-  try {
-    const historyRes = await fetch(`${getApiBase()}/api/history`);
-    if (historyRes.ok) {
-      const remote = await historyRes.json();
-      if (Array.isArray(remote.items)) {
-        state.history = remote.items;
-      }
-    }
-  } catch (err) {
-    console.warn("Remote history unavailable", err);
-  }
 }
 
 function downloadConfig() {
@@ -413,15 +555,19 @@ async function importConfigFile(file) {
   state.settings.theme = importedSettings.theme === "dark" ? "dark" : "light";
   state.settings.autoPasteClipboard = Boolean(importedSettings.autoPasteClipboard ?? state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(importedHotkeys);
+  state.settings.dialogueVoices = normalizeDialogueVoices(
+    importedSettings.dialogueVoices ?? state.settings.dialogueVoices
+  );
+  state.settings.speakerProfiles = normalizeSpeakerProfiles(
+    importedSettings.speakerProfiles ?? state.settings.speakerProfiles
+  );
+  state.settings.dialogCommands = normalizeDialogCommands(
+    importedSettings.dialogCommands ?? state.settings.dialogCommands
+  );
+  syncSpeakerIdCounter();
   persistLocalSettings();
   applyTheme();
-
-  try {
-    await syncSettingsToServer();
-    await fetchVoices();
-  } catch (err) {
-    alert(`Config imported, but could not sync completely: ${err.message}`);
-  }
+  await fetchVoices();
 
   renderVoiceOptions();
   renderModels();
@@ -440,24 +586,6 @@ function isSettingsOpen() {
 function closeSettingsPanel() {
   settingsPanel.classList.remove("open");
   settingsPanel.setAttribute("aria-hidden", "true");
-}
-
-async function refreshSettingsFromServer() {
-  const res = await fetch(`${getApiBase()}/api/settings`);
-  if (!res.ok) throw new Error(`Could not load server settings (${res.status})`);
-  const remoteSettings = await res.json();
-  state.settings = {
-    ...state.settings,
-    ...remoteSettings,
-    hotkeys: normalizeHotkeysObject(remoteSettings.hotkeys ?? state.settings.hotkeys),
-  };
-  state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
-  state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
-  state.settings.volume = normalizeVolume(state.settings.volume);
-  state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
-  persistLocalSettings();
-  lastSettingsSyncAt = nowIso();
-  updateSettingsSyncStatus(true);
 }
 
 async function maybeAutoPasteClipboard() {
@@ -497,6 +625,152 @@ function normalizePrependSilenceMs(value) {
   return Math.max(0, Math.min(3000, Math.round(n)));
 }
 
+function stripOuterQuotes(value) {
+  const text = String(value || "").trim();
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    return text.slice(1, -1).trim();
+  }
+  return text;
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function chunkNarratorText(text) {
+  const paragraphs = String(text || "")
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const out = [];
+  paragraphs.forEach((paragraph) => {
+    const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [paragraph];
+    let bucket = [];
+    for (let i = 0; i < sentences.length; i += 1) {
+      bucket.push(sentences[i].trim());
+      if (bucket.length >= 4 || i === sentences.length - 1) {
+        const chunk = bucket.join(" ").trim();
+        if (chunk) out.push(chunk);
+        bucket = [];
+      }
+    }
+  });
+  return out.length ? out : [String(text || "").trim()].filter(Boolean);
+}
+
+function allCommandMappings() {
+  const merged = [...normalizeDialogCommands(state.settings.dialogCommands), ...autoDialogCommandsFromSpeakers()];
+  const seen = new Set();
+  const out = [];
+  merged.forEach((item) => {
+    const alias = String(item.alias || "")
+      .trim()
+      .toLowerCase();
+    const target = String(item.target || "").trim().toLowerCase();
+    if (!alias || !target) return;
+    const key = `${alias}|${target}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ alias, target });
+  });
+  return out.sort((a, b) => b.alias.length - a.alias.length);
+}
+
+function recentClauseBeforeQuote(beforeText) {
+  const text = String(beforeText || "");
+  const boundary = Math.max(text.lastIndexOf("\n"), text.lastIndexOf("."), text.lastIndexOf("!"), text.lastIndexOf("?"), text.lastIndexOf(";"));
+  return text.slice(boundary + 1).trim();
+}
+
+function detectQuoteTarget(beforeText) {
+  const clause = recentClauseBeforeQuote(beforeText).toLowerCase();
+  if (!clause) return "";
+  const mappings = allCommandMappings();
+  const verbs = "(?:said|says|asked|replied|whispered|yelled|shouted)";
+  for (const item of mappings) {
+    const alias = escapeRegExp(item.alias);
+    const direct = new RegExp(`(?:^|\\b)${alias}\\s*$`, "i");
+    const withVerb = new RegExp(`(?:^|\\b)${alias}\\s+${verbs}\\s*$`, "i");
+    const withColon = new RegExp(`(?:^|\\b)${alias}\\s*:\\s*$`, "i");
+    if (direct.test(clause) || withVerb.test(clause) || withColon.test(clause)) {
+      return item.target;
+    }
+  }
+  return "";
+}
+
+function pushNarratorChunks(segments, text) {
+  const chunks = chunkNarratorText(text);
+  chunks.forEach((chunk) => {
+    if (chunk && chunk.trim()) segments.push({ text: chunk.trim(), voice: resolveNarratorVoice() });
+  });
+}
+
+function parseVoiceSegments(text) {
+  const input = String(text || "");
+  if (!input.trim()) return [];
+  const segments = [];
+  const quoteRe = /"([^"]+)"/g;
+  let cursor = 0;
+  let match;
+  while ((match = quoteRe.exec(input)) !== null) {
+    const before = input.slice(cursor, match.index);
+    if (before.trim()) {
+      pushNarratorChunks(segments, before);
+    }
+    const quoted = stripOuterQuotes(match[1]);
+    if (quoted) {
+      const target = detectQuoteTarget(input.slice(0, match.index));
+      const voice = target ? resolveVoiceByTarget(target) : resolveNarratorVoice();
+      segments.push({ text: quoted, voice });
+    }
+    cursor = match.index + match[0].length;
+  }
+  const tail = input.slice(cursor);
+  if (tail.trim()) {
+    pushNarratorChunks(segments, tail);
+  }
+  return segments.filter((segment) => segment.text && segment.text.trim());
+}
+
+async function warmVoice(voiceId) {
+  const voice = (voiceId || "").trim();
+  if (!voice || warmedVoices.has(voice)) return;
+  warmedVoices.add(voice);
+  try {
+    await fetch(`${getApiBase()}/api/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "warmup",
+        voice,
+        speed: 1.0,
+        prependSilenceMs: 0,
+      }),
+    });
+  } catch (_err) {
+    // best-effort warmup only
+    warmedVoices.delete(voice);
+  }
+}
+
+function warmConfiguredVoices() {
+  const targets = new Set([
+    state.settings.voice,
+    state.settings.dialogueVoices?.narrator,
+    state.settings.dialogueVoices?.male,
+    state.settings.dialogueVoices?.female,
+    ...(state.settings.speakerProfiles || []).map((p) => p.voice),
+  ]);
+  targets.forEach((voice) => {
+    if (voice) warmVoice(voice);
+  });
+}
+
 function absoluteAudioUrl(audioUrl) {
   if (!audioUrl) return "";
   if (audioUrl.startsWith("http://") || audioUrl.startsWith("https://")) {
@@ -509,19 +783,10 @@ function formatTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
-function updateSettingsSyncStatus(ok = true, message = "") {
+function updateSettingsSyncStatus() {
   if (!settingsSyncStatus) return;
-  if (message) {
-    settingsSyncStatus.textContent = message;
-    settingsSyncStatus.classList.toggle("error", !ok);
-    return;
-  }
-  if (lastSettingsSyncAt) {
-    settingsSyncStatus.textContent = `Last synced: ${new Date(lastSettingsSyncAt).toLocaleString()}`;
-  } else {
-    settingsSyncStatus.textContent = "Last synced: not yet";
-  }
-  settingsSyncStatus.classList.toggle("error", !ok);
+  settingsSyncStatus.textContent = "Settings are saved locally in this browser only.";
+  settingsSyncStatus.classList.remove("error");
 }
 
 function updateSpeedLabel() {
@@ -642,15 +907,37 @@ async function fetchVoices() {
   if (!state.settings.voice || !available.has(state.settings.voice)) {
     state.settings.voice = data.default || state.voices[0]?.id || "";
   }
+  state.settings.dialogueVoices = normalizeDialogueVoices(state.settings.dialogueVoices);
+  state.settings.speakerProfiles = normalizeSpeakerProfiles(state.settings.speakerProfiles);
+  ["narrator", "male", "female"].forEach((role) => {
+    const selected = state.settings.dialogueVoices[role];
+    if (!selected || !available.has(selected)) {
+      state.settings.dialogueVoices[role] = state.settings.voice;
+    }
+  });
+  state.settings.speakerProfiles = state.settings.speakerProfiles.map((profile, idx) => ({
+    id: profile.id || `spk-${idx + 1}`,
+    name: profile.name,
+    voice: profile.voice && available.has(profile.voice) ? profile.voice : state.settings.voice,
+  }));
   saveSettings();
+  warmConfiguredVoices();
 }
 
 function renderVoiceOptions() {
   const options = state.voices
     .map((v) => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label)}</option>`)
     .join("");
-  voiceSelect.innerHTML = options || '<option value="">No voices found</option>';
+  const fallbackOptions = options || '<option value="">No voices found</option>';
+  [voiceSelect, narratorVoiceSelect, maleVoiceSelect, femaleVoiceSelect].forEach((select) => {
+    if (select) select.innerHTML = fallbackOptions;
+  });
   voiceSelect.value = state.settings.voice;
+  applyDialogueSettingsToInputs();
+  Array.from(document.querySelectorAll("[data-speaker-voice]")).forEach((select, idx) => {
+    select.innerHTML = fallbackOptions;
+    select.value = state.settings.speakerProfiles[idx]?.voice || state.settings.voice;
+  });
 }
 
 function renderModels() {
@@ -698,9 +985,12 @@ async function uninstallVoiceModel(voiceId) {
   }
 }
 
-async function playSettingsVoiceSampleNow() {
-  const previewVoice = voiceSelect.value || state.settings.voice;
+async function playSettingsVoiceSampleNow(voiceOverride = "") {
+  const previewVoice = voiceOverride || voiceSelect.value || state.settings.voice;
   const previewSpeed = Number(speedInput.value || state.settings.speed || 1);
+  const previewPrependSilenceMs = normalizePrependSilenceMs(
+    prependSilenceInput?.value ?? state.settings.prependSilenceMs ?? 0
+  );
   const sampleText = "This is a voice test. The quick brown fox jumps over the lazy dog.";
 
   setLoading(true);
@@ -712,6 +1002,7 @@ async function playSettingsVoiceSampleNow() {
         text: sampleText,
         voice: previewVoice,
         speed: previewSpeed,
+        prependSilenceMs: previewPrependSilenceMs,
       }),
     });
     if (!res.ok) {
@@ -764,28 +1055,42 @@ async function playSettingsVoiceSample() {
   });
 }
 
-async function synthesize(entry) {
-  return synthesizeText(entry.text, entry);
+function getVoiceSelectById(id) {
+  const map = {
+    voiceSelect,
+    narratorVoiceSelect,
+    maleVoiceSelect,
+    femaleVoiceSelect,
+  };
+  return map[id] || document.getElementById(id) || null;
 }
 
-async function synthesizeText(text, entry) {
+async function synthesize(entry) {
+  return synthesizeText(entry.text, entry, entry.voice);
+}
+
+async function synthesizeText(text, entry, voiceOverride) {
   let lastError = null;
+  let chosenVoice = (voiceOverride || entry.voice || state.settings.voice || "").trim();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const res = await fetch(`${getApiBase()}/api/speak`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        voice: entry.voice,
+        voice: chosenVoice,
         speed: entry.speed,
+        prependSilenceMs: normalizePrependSilenceMs(state.settings.prependSilenceMs),
       }),
     });
 
     if (res.ok) {
       const data = await res.json();
       const absoluteUrl = absoluteAudioUrl(data.audioUrl);
-      entry.audioUrl = absoluteUrl;
-      entry.voice = data.voice || entry.voice;
+      if (!voiceOverride || voiceOverride === entry.voice) {
+        entry.audioUrl = absoluteUrl;
+        entry.voice = data.voice || entry.voice;
+      }
       return absoluteUrl;
     }
 
@@ -793,7 +1098,7 @@ async function synthesizeText(text, entry) {
     lastError = new Error(body.error || `Speak request failed (${res.status})`);
     if (attempt === 0 && /voice not found/i.test(lastError.message)) {
       await fetchVoices();
-      entry.voice = state.settings.voice;
+      chosenVoice = state.settings.voice;
       continue;
     }
   }
@@ -827,24 +1132,26 @@ async function playEntryNow(id) {
 
   setLoading(true);
   try {
-    const lines = nonEmptyLines(entry.text);
-    const shouldUseSegments = lines.length > 1;
+    const segments = parseVoiceSegments(entry.text);
+    const shouldUseSegments =
+      segments.length > 1 || (segments[0] && segments[0].voice && segments[0].voice !== entry.voice);
 
     if (shouldUseSegments) {
-      entry.segmentAudioUrls = [];
-      for (let i = 0; i < lines.length; i += 1) {
-        const lineText = lines[i];
-        const segmentUrl = await synthesizeText(lineText, entry);
-        entry.segmentAudioUrls.push(segmentUrl);
+      entry.segmentAudioSegments = [];
+      for (let i = 0; i < segments.length; i += 1) {
+        const segment = segments[i];
+        const segmentUrl = await synthesizeText(segment.text, entry, segment.voice);
+        entry.segmentAudioSegments.push({ url: segmentUrl, voice: segment.voice, text: segment.text });
       }
       saveHistory();
       render();
 
-      const totalWords = lines.reduce((sum, line) => sum + wordify(line).length, 0);
+      const totalWords = segments.reduce((sum, segment) => sum + wordify(segment.text).length, 0);
       let consumedWords = 0;
-      for (let i = 0; i < entry.segmentAudioUrls.length; i += 1) {
-        const segmentUrl = entry.segmentAudioUrls[i];
-        const lineWords = wordify(lines[i]);
+      for (let i = 0; i < entry.segmentAudioSegments.length; i += 1) {
+        const segmentItem = entry.segmentAudioSegments[i];
+        const segmentUrl = segmentItem.url;
+        const lineWords = wordify(segmentItem.text);
         const audio = new Audio(segmentUrl);
         audio.volume = normalizeVolume(state.settings.volume);
         state.currentAudio = audio;
@@ -870,6 +1177,13 @@ async function playEntryNow(id) {
         });
         state.currentPlaybackAbort = null;
         consumedWords += lineWords.length;
+        if (i < entry.segmentAudioSegments.length - 1) {
+          const nextVoice = entry.segmentAudioSegments[i + 1].voice || "";
+          const currentVoice = segmentItem.voice || "";
+          if (nextVoice && currentVoice && nextVoice !== currentVoice) {
+            await sleep(VOICE_SWITCH_PAUSE_MS);
+          }
+        }
       }
       visualizer.classList.remove("active");
       state.activePlaybackId = null;
@@ -1059,13 +1373,18 @@ function updateComposerActionButton() {
 async function submitText(text) {
   const trimmed = text.trim();
   if (!trimmed) return;
+  if (isPlaybackActive()) {
+    stopPlayback();
+  }
+  const segmentVoices = new Set(parseVoiceSegments(trimmed).map((s) => s.voice).filter(Boolean));
+  await Promise.all(Array.from(segmentVoices).map((voice) => warmVoice(voice)));
 
   const entry = {
     id: uid(),
     text: trimmed,
     pinned: false,
     createdAt: nowIso(),
-    voice: state.settings.voice,
+    voice: resolveNarratorVoice(),
     speed: state.settings.speed,
     audioUrl: "",
   };
@@ -1307,15 +1626,90 @@ function bindEvents() {
     }
   });
 
-  testVoiceBtn.addEventListener("click", async () => {
-    testVoiceBtn.disabled = true;
+  settingsForm.addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-test-voice-target]");
+    if (!btn) return;
+    ev.preventDefault();
+    const targetId = btn.getAttribute("data-test-voice-target");
+    const select = getVoiceSelectById(targetId);
+    const voice = select?.value || state.settings.voice;
+    btn.disabled = true;
     try {
-      await playSettingsVoiceSample();
+      await enqueueAudioJob(async () => {
+        await playSettingsVoiceSampleNow(voice);
+      });
     } catch (err) {
       alert(`Could not play voice test: ${err.message}`);
     } finally {
-      testVoiceBtn.disabled = false;
+      btn.disabled = false;
     }
+  });
+
+  addDialogCommandBtn?.addEventListener("click", () => {
+    const parsed = parseDialogCommandInput(dialogCommandInput?.value || "");
+    if (!parsed.ok) {
+      alert(parsed.error);
+      return;
+    }
+    const list = normalizeDialogCommands(state.settings.dialogCommands, false);
+    if (!list.some((item) => item.alias === parsed.item.alias && item.target === parsed.item.target)) {
+      list.push(parsed.item);
+      state.settings.dialogCommands = list;
+      persistLocalSettings();
+      renderDialogCommandPills();
+    }
+    if (dialogCommandInput) dialogCommandInput.value = "";
+  });
+
+  dialogCommandPills?.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-remove-dialog-index]");
+    if (!btn) return;
+    const idx = Number(btn.getAttribute("data-remove-dialog-index"));
+    if (!Number.isInteger(idx) || idx < 0) return;
+    const list = normalizeDialogCommands(state.settings.dialogCommands, false);
+    if (idx >= list.length) return;
+    list.splice(idx, 1);
+    state.settings.dialogCommands = list;
+    persistLocalSettings();
+    renderDialogCommandPills();
+  });
+
+  resetDialogCommandsBtn?.addEventListener("click", () => {
+    state.settings.dialogCommands = defaultDialogCommands();
+    persistLocalSettings();
+    renderDialogCommandPills();
+  });
+
+  addSpeakerBtn?.addEventListener("click", () => {
+    const current = readDialogueSettingsFromInputs();
+    state.settings.speakerProfiles = current.speakerProfiles;
+    const index = state.settings.speakerProfiles.length + 1;
+    state.settings.speakerProfiles.push({
+      id: `spk-${nextSpeakerId++}`,
+      name: `Speaker ${index}`,
+      voice: state.settings.voice,
+    });
+    persistLocalSettings();
+    renderVoiceOptions();
+    renderDialogCommandPills();
+  });
+
+  speakerProfilesList?.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("button[data-remove-speaker-id]");
+    if (!btn) return;
+    const speakerId = btn.getAttribute("data-remove-speaker-id");
+    const current = readDialogueSettingsFromInputs();
+    if (current.speakerProfiles.length <= 1) return;
+    state.settings.speakerProfiles = current.speakerProfiles.filter((item) => item.id !== speakerId);
+    persistLocalSettings();
+    renderVoiceOptions();
+    renderDialogCommandPills();
+  });
+
+  speakerProfilesList?.addEventListener("input", () => {
+    const current = readDialogueSettingsFromInputs();
+    state.settings.speakerProfiles = current.speakerProfiles;
+    renderDialogCommandPills();
   });
 
   settingsForm.addEventListener("submit", async (ev) => {
@@ -1329,31 +1723,25 @@ function bindEvents() {
     state.settings.theme = darkModeInput.checked ? "dark" : "light";
     state.settings.autoPasteClipboard = autoPasteInput.checked;
     state.settings.hotkeys = readHotkeysFromInputs();
+    const dialogueSettings = readDialogueSettingsFromInputs();
+    state.settings.dialogueVoices = dialogueSettings.dialogueVoices;
+    state.settings.speakerProfiles = dialogueSettings.speakerProfiles;
+    syncSpeakerIdCounter();
     persistLocalSettings();
-
     try {
-      await syncSettingsToServer();
       await fetchVoices();
-      applyTheme();
-      renderVoiceOptions();
-      renderModels();
-      closeSettingsPanel();
     } catch (err) {
-      updateSettingsSyncStatus(false, `Last sync failed: ${err.message}`);
-      alert(`Could not save settings: ${err.message}`);
+      alert(`Could not refresh voices: ${err.message}`);
     }
+    applyTheme();
+    renderVoiceOptions();
+    renderModels();
+    updateSettingsSyncStatus();
+    closeSettingsPanel();
   });
 }
 
 async function openSettings() {
-  let refreshed = true;
-  try {
-    await refreshSettingsFromServer();
-  } catch (err) {
-    refreshed = false;
-    console.warn("Could not refresh server settings", err);
-    updateSettingsSyncStatus(false, `Last sync failed: ${err.message}`);
-  }
   serverUrlInput.value = state.settings.serverUrl;
   speedInput.value = String(state.settings.speed);
   prependSilenceInput.value = String(normalizePrependSilenceMs(state.settings.prependSilenceMs));
@@ -1363,25 +1751,32 @@ async function openSettings() {
   darkModeInput.checked = state.settings.theme === "dark";
   autoPasteInput.checked = Boolean(state.settings.autoPasteClipboard);
   applyHotkeyInputs();
+  applyDialogueSettingsToInputs();
   updateSpeedLabel();
   renderVoiceOptions();
   renderModels();
   settingsPanel.classList.add("open");
   settingsPanel.setAttribute("aria-hidden", "false");
-  if (refreshed) updateSettingsSyncStatus(true);
+  updateSettingsSyncStatus();
 }
 
 async function init() {
   loadLocalState();
-  await loadRemoteState();
   if (state.settings.theme !== "dark" && state.settings.theme !== "light") {
     state.settings.theme = "dark";
   }
   state.settings.downloadFormat = normalizeDownloadFormat(state.settings.downloadFormat);
   state.settings.prependSilenceMs = normalizePrependSilenceMs(state.settings.prependSilenceMs);
+  if (state.settings.prependSilenceMs === 0) {
+    state.settings.prependSilenceMs = 250;
+  }
   state.settings.volume = normalizeVolume(state.settings.volume);
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(state.settings.hotkeys);
+  state.settings.dialogueVoices = normalizeDialogueVoices(state.settings.dialogueVoices);
+  state.settings.speakerProfiles = normalizeSpeakerProfiles(state.settings.speakerProfiles);
+  state.settings.dialogCommands = normalizeDialogCommands(state.settings.dialogCommands);
+  syncSpeakerIdCounter();
   saveSettings();
   saveHistory();
   applyTheme();

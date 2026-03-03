@@ -19,6 +19,9 @@ services:
       - "${WEB_PORT:-3015}:80"
     depends_on:
       - api
+    networks:
+      - default
+      - npm_proxy
 
   swagger:
     image: swaggerapi/swagger-ui:latest
@@ -31,7 +34,13 @@ services:
       - ./backend/openapi.static.json:/openapi.json:ro
     depends_on:
       - api
+    networks:
+      - npm_proxy
 
 volumes:
   piper_voices:
   piper_audio:
+
+networks:
+  npm_proxy:
+    external: true

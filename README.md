@@ -3,16 +3,22 @@
 Open-TTS is a Docker-first text-to-speech service and web UI with chat-style playback, voice management, downloads, and browser extension support.
 
 ## Version
-- Current app version: `0.4.0`
+- Current app version: `0.5.0`
 - See `CHANGELOG.md` for release history.
 
 ## Highlights
 - Web UI with history, pinning, downloads, and keyboard shortcuts.
 - Queue-based playback to avoid overlap.
+- Local-only web persistence (history + settings are not shared across browsers/devices).
 - Voice providers:
 - Piper voices (model-based).
 - Supertonic voices (provider-based).
 - Configurable startup silence (`prependSilenceMs`) to avoid clipped first words.
+- Dialogue voice routing with quote-first behavior:
+- Quoted speech can switch to male/female/speaker voices.
+- Non-quoted text remains narrator voice by default.
+- Dynamic speaker profiles with add/remove support.
+- Dialog command pill manager with default aliases, custom aliases, and reset support.
 - Dark mode default.
 - Browser extension (Chrome + Firefox) with popup controls and context-menu readout.
 
@@ -71,10 +77,12 @@ Existing deployments are preserved and are not force-pruned.
 Users can install additional voices later from the UI or API.
 
 ## Settings Notes
-Shared app settings are served by `GET/PUT /api/settings`.
+Web app settings and history are local to each browser profile/device.
+They are not synced across browsers or machines.
+
 Current defaults include:
 - `theme`: `dark`
-- `prependSilenceMs`: `350`
+- `prependSilenceMs`: `250`
 
 `prependSilenceMs` is applied as dead air at the start of generated WAV output.
 Range: `0` to `3000` ms.
@@ -102,8 +110,16 @@ Extension source is in `extension/`.
 4. Save settings.
 
 Notes:
-- Extension settings are local to the extension.
+- Extension settings are local to that browser profile (`chrome.storage.local`).
 - Extension can auto-paste clipboard and auto-speak on popup open when enabled.
+
+## OpenAPI Access
+- Direct API OpenAPI JSON: `http://localhost:3016/api/openapi.json`
+- Direct API docs UI: `http://localhost:3016/api/docs`
+- Proxied via web port:
+- `http://localhost:3015/api/openapi.json`
+- `http://localhost:3015/api/docs`
+- Separate Swagger container UI: `http://localhost:3017`
 
 ## API Overview
 Core endpoints:

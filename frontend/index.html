@@ -56,15 +56,62 @@
     <aside id="settingsPanel" class="settings-panel" aria-label="Settings" aria-hidden="true">
       <form id="settingsForm" class="settings-form">
         <h3>Settings</h3>
-        <small id="settingsSyncStatus" class="settings-sync-status">Last synced: not yet</small>
+        <small id="settingsSyncStatus" class="settings-sync-status">Settings are saved locally in this browser only.</small>
         <label>
           Server URL
           <input id="serverUrlInput" type="url" placeholder="Leave empty to use same host (/api)" />
         </label>
         <label>
           Voice
-          <select id="voiceSelect"></select>
+          <div class="voice-select-row">
+            <select id="voiceSelect"></select>
+            <button type="button" data-test-voice-target="voiceSelect">Test Voice</button>
+          </div>
         </label>
+        <section class="model-manager" aria-label="Dialogue voices">
+          <div class="model-manager-head">
+            <strong>Dialogue Voices</strong>
+          </div>
+          <label>
+            Narrator Voice
+            <div class="voice-select-row">
+              <select id="narratorVoiceSelect"></select>
+              <button type="button" data-test-voice-target="narratorVoiceSelect">Test Voice</button>
+            </div>
+          </label>
+          <label>
+            Male Voice
+            <div class="voice-select-row">
+              <select id="maleVoiceSelect"></select>
+              <button type="button" data-test-voice-target="maleVoiceSelect">Test Voice</button>
+            </div>
+          </label>
+          <label>
+            Female Voice
+            <div class="voice-select-row">
+              <select id="femaleVoiceSelect"></select>
+              <button type="button" data-test-voice-target="femaleVoiceSelect">Test Voice</button>
+            </div>
+          </label>
+          <div class="model-manager-head">
+            <strong>Speakers</strong>
+            <button type="button" id="addSpeakerBtn">+ Speaker</button>
+          </div>
+          <div id="speakerProfilesList" class="speaker-profiles-list" aria-label="Speaker profiles"></div>
+          <small>Use lines like: <code>M"Hi"</code>, <code>F"Hi"</code>, <code>He said "Hi"</code>, <code>She said "Hi"</code>, <code>Speaker 1: "Hi"</code>, or <code>Alice: "Hi"</code>.</small>
+        </section>
+        <section class="model-manager" aria-label="Dialog commands">
+          <div class="model-manager-head">
+            <strong>Dialog Commands</strong>
+            <button type="button" id="resetDialogCommandsBtn">Reset Defaults</button>
+          </div>
+          <div class="config-row">
+            <input id="dialogCommandInput" type="text" placeholder="alias=target (e.g. boss=male, lead=speaker2)" />
+            <button type="button" id="addDialogCommandBtn">Add</button>
+          </div>
+          <div id="dialogCommandPills" class="dialog-command-pills" aria-label="Dialog command pills"></div>
+          <small>Targets: <code>narrator</code>, <code>male</code>, <code>female</code>, or <code>speaker1..speakerN</code> (based on your current speaker list).</small>
+        </section>
         <label>
           Speed
           <input id="speedInput" type="range" min="0.5" max="2" step="0.1" />
@@ -149,12 +196,13 @@
           </div>
           <small>Created by Alex Sierputowski at <a href="https://gamedirection.net" target="_blank" rel="noreferrer">GameDirection.net</a>.</small>
           <small>Let's chat at <a href="https://join.gamedirection.net" target="_blank" rel="noreferrer">join.gamedirection.net</a>.</small>
-          <small>Version: <code>0.3.0</code></small>
+          <small>Version: <code>0.5.0</code></small>
+          <small>OpenAPI Docs: <a href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a></small>
+          <small>OpenAPI JSON: <a href="/api/openapi.json" target="_blank" rel="noreferrer">/api/openapi.json</a></small>
           <small>GitHub: <a href="https://github.com/your-org/your-repo" target="_blank" rel="noreferrer">https://github.com/your-org/your-repo</a></small>
         </section>
       </form>
       <div class="settings-actions">
-        <button value="test" type="button" id="testVoiceBtn">Test Voice</button>
         <button type="button" id="closeSettings">Close</button>
         <button type="submit" form="settingsForm">Save</button>
       </div>
