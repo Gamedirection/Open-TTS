@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0] - 2026-03-05
+- Improved long-text startup latency with segmented synthesis/playback pipelining:
+- First segments play earlier while later segments synthesize in background.
+- Added skip-ahead playback control (`>>`) for quicker navigation.
+- Improved segmented stop behavior so `Stop` reliably cancels all further chunks.
+- Added client-isolated server settings/history:
+- `/api/settings` and `/api/history` now require `X-OpenTTS-Client`.
+- Data is stored per client identity instead of a shared global file.
+- Hardened audio/download access with signed expiring URL tokens:
+- `/api/speak` now returns tokenized audio URLs.
+- `/api/audio/{name}` and `/api/download/{name}` reject missing/invalid tokens.
+- Added phonetic dictionary workflow in web UI:
+- Add/remove pronunciation replacements.
+- Play per-entry pronunciation preview.
+- Dictionary replacements are applied before synthesis.
+- Dictionary is included in config export/import.
+- Added dictionary duplicate-word handling:
+- Duplicate words are highlighted.
+- The newest duplicate entry is treated as active and used for synthesis.
+- Added richer message metadata display:
+- Header now shows all voices used in playback for a message.
+- Added role color customization:
+- Default role colors for narrator/male/female/speaker1..speaker4.
+- Click voice chips in message header to open color picker.
+- Theme-aware color contrast adjustment for light/dark mode.
+- Improved dark-mode link contrast with lighter hyperlink colors.
+- Added collapsible settings sections with persisted expand/collapse state.
+- Updated default voices:
+- Voice + Male: `en_US-ryan-high`
+- Female: `en_US-amy-medium`
+- Narrator: `en_GB-alan-medium`
+- Improved quote-based highlighting alignment and timing for multi-speaker lines.
+- Updated settings Credits GitHub link to:
+- `https://github.com/Gamedirection/Open-TTS`
+
 ## [0.5.0] - 2026-03-03
 - Switched web app persistence to local-only per browser/device for history and settings.
 - Removed web history sync and extension history sync with `/api/history`.

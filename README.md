@@ -3,13 +3,17 @@
 Open-TTS is a Docker-first text-to-speech service and web UI with chat-style playback, voice management, downloads, and browser extension support.
 
 ## Version
-- Current app version: `0.5.0`
+- Current app version: `0.6.0`
 - See `CHANGELOG.md` for release history.
 
 ## Highlights
 - Web UI with history, pinning, downloads, and keyboard shortcuts.
 - Queue-based playback to avoid overlap.
+- Segmented playback pipelining for faster long-text startup.
+- Skip-ahead playback control (`>>`) and improved stop-all behavior.
 - Local-only web persistence (history + settings are not shared across browsers/devices).
+- Phonetic dictionary with add/remove and pronunciation preview.
+- Duplicate phonetic-word detection (newest duplicate wins).
 - Voice providers:
 - Piper voices (model-based).
 - Supertonic voices (provider-based).
@@ -19,6 +23,9 @@ Open-TTS is a Docker-first text-to-speech service and web UI with chat-style pla
 - Non-quoted text remains narrator voice by default.
 - Dynamic speaker profiles with add/remove support.
 - Dialog command pill manager with default aliases, custom aliases, and reset support.
+- Clickable voice chips in message headers for role color customization.
+- Theme-aware role color contrast adjustment for light/dark mode.
+- Collapsible settings sections with persisted state.
 - Dark mode default.
 - Browser extension (Chrome + Firefox) with popup controls and context-menu readout.
 
@@ -138,6 +145,11 @@ Core endpoints:
 - `GET /api/openapi.json`
 - `GET /api/docs`
 
+Security notes:
+- `GET/PUT /api/settings` and `GET/PUT/POST /api/history` require `X-OpenTTS-Client`.
+- `/api/speak` returns tokenized `audioUrl`.
+- `/api/audio/{name}` and `/api/download/{name}` require the token in query parameters.
+
 Use either:
 - Direct API port (`3016`) for API clients, or
 - Proxied route via web port (`3015`) using `/api/*`.
@@ -167,5 +179,6 @@ Use either:
 ## Troubleshooting
 - `Settings sync failed (404)`: check server URL and whether `/api/settings` exists on the target API.
 - Missing first words: increase `prependSilenceMs` in app settings.
+- If audio/download returns `403`: ensure you are using the tokenized URL returned by `/api/speak`.
 - Voice install issues: inspect backend logs and network access for model download hosts.
 - API not starting: check `docker compose logs api` for model download or dependency errors.

@@ -7,6 +7,8 @@
   --muted: #636363;
   --border: #e2dbcc;
   --pin: #f3c969;
+  --link: #185fb5;
+  --link-hover: #0f4c96;
 }
 
 [data-theme="dark"] {
@@ -18,6 +20,8 @@
   --muted: #c0c7d4;
   --border: #3d4757;
   --pin: #f6be55;
+  --link: #9bc9ff;
+  --link-hover: #c0dcff;
 }
 
 * {
@@ -34,6 +38,14 @@ body {
     color-mix(in srgb, var(--bg) 90%, #d9d4cb 10%) 100%
   );
   color: var(--text);
+}
+
+a {
+  color: var(--link);
+}
+
+a:hover {
+  color: var(--link-hover);
 }
 
 [data-theme="dark"] body {
@@ -62,6 +74,12 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1rem;
+}
+
+.sidebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .sidebar h2,
@@ -128,6 +146,24 @@ body {
   align-items: center;
   color: var(--muted);
   font-size: 0.8rem;
+  gap: 0.5rem;
+}
+
+.msg-head > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.voice-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent 8%);
+  padding: 0.12rem 0.45rem;
+  font: inherit;
+  cursor: pointer;
 }
 
 .msg-text {
@@ -138,6 +174,10 @@ body {
 .msg-text .word.active {
   background: color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: 4px;
+}
+
+.msg-text .word.phonetic-word {
+  font-style: italic;
 }
 
 .msg-actions {
@@ -198,6 +238,16 @@ body {
   align-items: center;
   gap: 0.8rem;
   flex-wrap: wrap;
+}
+
+.skip-ahead-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  font-weight: 700;
 }
 
 .volume-control {
@@ -277,7 +327,7 @@ textarea {
   position: fixed;
   top: 0;
   right: 0;
-  width: min(520px, 96vw);
+  width: min(620px, 98vw);
   height: 100vh;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -301,6 +351,7 @@ textarea {
   gap: 0.75rem;
   flex: 1 1 auto;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0.25rem;
 }
 
@@ -329,7 +380,7 @@ textarea {
 
 .voice-select-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.45rem;
   align-items: center;
 }
@@ -412,6 +463,21 @@ textarea {
   align-items: center;
 }
 
+.collapse-toggle {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  font-weight: 700;
+  min-width: 2rem;
+}
+
+.model-manager.collapsed > :not(.model-manager-head) {
+  display: none;
+}
+
 .model-manager-head button,
 .model-item button {
   border: 1px solid var(--border);
@@ -420,6 +486,66 @@ textarea {
   color: var(--text);
   padding: 0.35rem 0.6rem;
   cursor: pointer;
+}
+
+.phonetic-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.45rem;
+}
+
+.phonetic-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.phonetic-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.phonetic-item.duplicate {
+  border-color: #f59e0b;
+  background: color-mix(in srgb, var(--panel) 88%, #fde68a 12%);
+}
+
+.phonetic-item.active-duplicate {
+  border-color: #d97706;
+}
+
+.phonetic-item-text {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.phonetic-item-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.phonetic-item-actions button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.phonetic-arrow {
+  color: var(--muted);
+  margin: 0 0.2rem;
+}
+
+.phonetic-dup-note {
+  display: block;
+  margin-top: 0.2rem;
+  color: #b45309;
 }
 
 .models-list {
@@ -446,6 +572,24 @@ textarea {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.45rem;
+}
+
+.speaker-color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+}
+
+.speaker-color-grid label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.88rem;
+}
+
+.speaker-color-grid input[type="color"] {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.1rem;
 }
 
 .hotkey-grid label {
@@ -500,9 +644,14 @@ textarea {
   border-radius: 8px;
   padding: 0.45rem;
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
   gap: 0.4rem;
   align-items: center;
+}
+
+.speaker-profile-row input,
+.speaker-profile-row select {
+  min-width: 0;
 }
 
 .speaker-profile-row .speaker-label {
@@ -563,6 +712,18 @@ textarea {
   }
 
   .hotkey-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .speaker-color-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .phonetic-add-row {
+    grid-template-columns: 1fr;
+  }
+
+  .phonetic-item {
     grid-template-columns: 1fr;
   }
 

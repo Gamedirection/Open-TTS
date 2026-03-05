@@ -1,5 +1,8 @@
 const STORAGE_KEY = "piper_chat_history_v1";
 const SETTINGS_KEY = "piper_chat_settings_v1";
+const SETTINGS_COLLAPSE_KEY = "piper_chat_settings_collapsed_v1";
+const API_CLIENT_ID_KEY = "open_tts_client_id_v1";
+const API_CLIENT_ID_HEADER = "X-OpenTTS-Client";
 const HOTKEY_DEFAULTS = Object.freeze({
   focusInput: "v",
   stopAudio: "s",
@@ -24,6 +27,20 @@ const HOTKEY_INPUT_IDS = Object.freeze({
 });
 const DEFAULT_SPEAKER_COUNT = 4;
 const VOICE_SWITCH_PAUSE_MS = 280;
+const DEFAULT_MAIN_VOICE = "en_US-ryan-high";
+const DEFAULT_NARRATOR_VOICE = "en_GB-alan-medium";
+const DEFAULT_MALE_VOICE = "en_US-ryan-high";
+const DEFAULT_FEMALE_VOICE = "en_US-amy-medium";
+const MIN_SYNTH_PREPEND_SILENCE_MS = 350;
+const DEFAULT_SPEAKER_COLORS = Object.freeze({
+  narrator: "#ffffff",
+  male: "#8ec5ff",
+  female: "#ff9ecf",
+  speaker1: "#f59e0b",
+  speaker2: "#ef4444",
+  speaker3: "#a855f7",
+  speaker4: "#22c55e",
+});
 const DIALOG_COMMAND_DEFAULTS = Object.freeze([
   { alias: "m", target: "male" },
   { alias: "male", target: "male" },
@@ -63,13 +80,16 @@ const state = {
   activePlaybackId: null,
   currentAudio: null,
   currentPlaybackAbort: null,
+  playbackAbortMode: "",
+  playbackToken: 0,
+  segmentedPlaybackActive: false,
   audioQueue: [],
   queueRunning: false,
   voices: [],
   catalog: [],
   settings: {
     serverUrl: "",
-    voice: "",
+    voice: DEFAULT_MAIN_VOICE,
     speed: 1.0,
     prependSilenceMs: 250,
     volume: 1.0,
@@ -78,12 +98,14 @@ const state = {
     autoPasteClipboard: false,
     hotkeys: { ...HOTKEY_DEFAULTS },
     dialogueVoices: {
-      narrator: "",
-      male: "",
-      female: "",
+      narrator: DEFAULT_NARRATOR_VOICE,
+      male: DEFAULT_MALE_VOICE,
+      female: DEFAULT_FEMALE_VOICE,
     },
+    speakerColors: { ...DEFAULT_SPEAKER_COLORS },
     speakerProfiles: defaultSpeakerProfiles(),
     dialogCommands: defaultDialogCommands(),
+    phoneticDictionary: [],
   },
 };
 
@@ -101,12 +123,24 @@ const voiceSelect = document.getElementById("voiceSelect");
 const narratorVoiceSelect = document.getElementById("narratorVoiceSelect");
 const maleVoiceSelect = document.getElementById("maleVoiceSelect");
 const femaleVoiceSelect = document.getElementById("femaleVoiceSelect");
+const narratorColorInput = document.getElementById("narratorColorInput");
+const maleColorInput = document.getElementById("maleColorInput");
+const femaleColorInput = document.getElementById("femaleColorInput");
+const speaker1ColorInput = document.getElementById("speaker1ColorInput");
+const speaker2ColorInput = document.getElementById("speaker2ColorInput");
+const speaker3ColorInput = document.getElementById("speaker3ColorInput");
+const speaker4ColorInput = document.getElementById("speaker4ColorInput");
 const speakerProfilesList = document.getElementById("speakerProfilesList");
 const addSpeakerBtn = document.getElementById("addSpeakerBtn");
 const dialogCommandInput = document.getElementById("dialogCommandInput");
 const addDialogCommandBtn = document.getElementById("addDialogCommandBtn");
 const resetDialogCommandsBtn = document.getElementById("resetDialogCommandsBtn");
 const dialogCommandPills = document.getElementById("dialogCommandPills");
+const phoneticSection = document.getElementById("phoneticSection");
+const phoneticWordInput = document.getElementById("phoneticWordInput");
+const phoneticReplacementInput = document.getElementById("phoneticReplacementInput");
+const addPhoneticBtn = document.getElementById("addPhoneticBtn");
+const phoneticList = document.getElementById("phoneticList");
 const speedInput = document.getElementById("speedInput");
 const speedValue = document.getElementById("speedValue");
 const prependSilenceInput = document.getElementById("prependSilenceInput");
@@ -117,7 +151,9 @@ const autoPasteInput = document.getElementById("autoPasteInput");
 const modelsList = document.getElementById("modelsList");
 const refreshModelsBtn = document.getElementById("refreshModelsBtn");
 const loadingIndicator = document.getElementById("loadingIndicator");
+const inlineColorPicker = document.getElementById("inlineColorPicker");
 const speakButton = document.getElementById("speakStopBtn");
+const skipAheadBtn = document.getElementById("skipAheadBtn");
 const volumeInput = document.getElementById("volumeInput");
 const volumeValue = document.getElementById("volumeValue");
 const settingsVolumeInput = document.getElementById("settingsVolumeInput");
@@ -130,6 +166,7 @@ const deleteAllPinnedBtn = document.getElementById("deleteAllPinnedBtn");
 let lastClipboardAutopasteMs = 0;
 const warmedVoices = new Set();
 let nextSpeakerId = 1;
+let apiClientIdCache = "";
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -180,6 +217,61 @@ function persistLocalSettings() {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
 }
 
+function loadCollapsedSectionsState() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_COLLAPSE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_err) {
+    return {};
+  }
+}
+
+function saveCollapsedSectionsState(next) {
+  try {
+    localStorage.setItem(SETTINGS_COLLAPSE_KEY, JSON.stringify(next || {}));
+  } catch (_err) {
+    // ignore storage errors
+  }
+}
+
+function setSectionCollapsed(section, shouldCollapse) {
+  section.classList.toggle("collapsed", Boolean(shouldCollapse));
+  const toggle = section.querySelector(".collapse-toggle");
+  if (toggle) {
+    toggle.textContent = shouldCollapse ? "▾" : "▴";
+    toggle.setAttribute("aria-expanded", shouldCollapse ? "false" : "true");
+  }
+}
+
+function initCollapsibleSettingsSections() {
+  if (!settingsForm) return;
+  const collapsedState = loadCollapsedSectionsState();
+  const sections = Array.from(settingsForm.querySelectorAll(".model-manager"));
+  sections.forEach((section, index) => {
+    if (!section.id) section.id = `settings-section-${index + 1}`;
+    const sectionId = section.id;
+    const head = section.querySelector(".model-manager-head");
+    if (!head) return;
+    if (head.querySelector(".collapse-toggle")) return;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "collapse-toggle";
+    const defaultCollapsed = index > 0;
+    const collapsed = Object.prototype.hasOwnProperty.call(collapsedState, sectionId)
+      ? Boolean(collapsedState[sectionId])
+      : defaultCollapsed;
+    toggle.addEventListener("click", () => {
+      const nextCollapsed = !section.classList.contains("collapsed");
+      setSectionCollapsed(section, nextCollapsed);
+      collapsedState[sectionId] = nextCollapsed;
+      saveCollapsedSectionsState(collapsedState);
+    });
+    head.appendChild(toggle);
+    setSectionCollapsed(section, collapsed);
+  });
+}
+
 function setLoading(isLoading) {
   loadingIndicator.classList.toggle("active", isLoading);
   updateComposerActionButton();
@@ -210,6 +302,8 @@ function clearAudioQueue(reason = "queue cleared") {
 }
 
 function stopPlayback(clearQueue = true) {
+  state.playbackToken += 1;
+  state.playbackAbortMode = "stop";
   if (state.currentPlaybackAbort) {
     const abortFn = state.currentPlaybackAbort;
     state.currentPlaybackAbort = null;
@@ -227,6 +321,38 @@ function stopPlayback(clearQueue = true) {
   setLoading(false);
   updateComposerActionButton();
   render();
+}
+
+function skipAheadPlayback() {
+  if (!state.currentAudio && !state.currentPlaybackAbort) return;
+
+  if (state.segmentedPlaybackActive && state.currentPlaybackAbort) {
+    state.playbackAbortMode = "skip";
+    const abortFn = state.currentPlaybackAbort;
+    state.currentPlaybackAbort = null;
+    abortFn();
+    if (state.currentAudio) {
+      state.currentAudio.pause();
+      state.currentAudio.currentTime = 0;
+      state.currentAudio = null;
+    }
+    return;
+  }
+
+  if (state.currentAudio && Number.isFinite(state.currentAudio.duration) && state.currentAudio.duration > 0) {
+    const next = Math.min(state.currentAudio.duration - 0.05, state.currentAudio.currentTime + 15);
+    if (next > state.currentAudio.currentTime) {
+      state.currentAudio.currentTime = next;
+      return;
+    }
+  }
+
+  if (state.currentPlaybackAbort) {
+    state.playbackAbortMode = "skip";
+    const abortFn = state.currentPlaybackAbort;
+    state.currentPlaybackAbort = null;
+    abortFn();
+  }
 }
 
 function enqueueAudioJob(jobFn) {
@@ -349,6 +475,100 @@ function normalizeSpeakerProfiles(incoming) {
   });
 }
 
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(raw)) return raw.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(raw)) {
+    const r = raw[1];
+    const g = raw[2];
+    const b = raw[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return fallback;
+}
+
+function normalizeSpeakerColors(incoming) {
+  const raw = incoming && typeof incoming === "object" ? incoming : {};
+  return {
+    narrator: normalizeHexColor(raw.narrator, DEFAULT_SPEAKER_COLORS.narrator),
+    male: normalizeHexColor(raw.male, DEFAULT_SPEAKER_COLORS.male),
+    female: normalizeHexColor(raw.female, DEFAULT_SPEAKER_COLORS.female),
+    speaker1: normalizeHexColor(raw.speaker1, DEFAULT_SPEAKER_COLORS.speaker1),
+    speaker2: normalizeHexColor(raw.speaker2, DEFAULT_SPEAKER_COLORS.speaker2),
+    speaker3: normalizeHexColor(raw.speaker3, DEFAULT_SPEAKER_COLORS.speaker3),
+    speaker4: normalizeHexColor(raw.speaker4, DEFAULT_SPEAKER_COLORS.speaker4),
+  };
+}
+
+function applySpeakerColorInputs() {
+  if (narratorColorInput) narratorColorInput.value = state.settings.speakerColors.narrator;
+  if (maleColorInput) maleColorInput.value = state.settings.speakerColors.male;
+  if (femaleColorInput) femaleColorInput.value = state.settings.speakerColors.female;
+  if (speaker1ColorInput) speaker1ColorInput.value = state.settings.speakerColors.speaker1;
+  if (speaker2ColorInput) speaker2ColorInput.value = state.settings.speakerColors.speaker2;
+  if (speaker3ColorInput) speaker3ColorInput.value = state.settings.speakerColors.speaker3;
+  if (speaker4ColorInput) speaker4ColorInput.value = state.settings.speakerColors.speaker4;
+}
+
+function readSpeakerColorsFromInputs() {
+  return normalizeSpeakerColors({
+    narrator: narratorColorInput?.value,
+    male: maleColorInput?.value,
+    female: femaleColorInput?.value,
+    speaker1: speaker1ColorInput?.value,
+    speaker2: speaker2ColorInput?.value,
+    speaker3: speaker3ColorInput?.value,
+    speaker4: speaker4ColorInput?.value,
+  });
+}
+
+function hexToRgb(hex) {
+  const value = normalizeHexColor(hex, "#000000");
+  return {
+    r: parseInt(value.slice(1, 3), 16),
+    g: parseInt(value.slice(3, 5), 16),
+    b: parseInt(value.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex(r, g, b) {
+  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+  const toHex = (n) => clamp(n).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function relativeLuminance({ r, g, b }) {
+  const toLinear = (c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const rl = toLinear(r);
+  const gl = toLinear(g);
+  const bl = toLinear(b);
+  return 0.2126 * rl + 0.7152 * gl + 0.0722 * bl;
+}
+
+function mixRgb(a, b, weight) {
+  return {
+    r: a.r * (1 - weight) + b.r * weight,
+    g: a.g * (1 - weight) + b.g * weight,
+    b: a.b * (1 - weight) + b.b * weight,
+  };
+}
+
+function themeAdjustedSpeakerColor(color) {
+  const base = hexToRgb(color);
+  const lum = relativeLuminance(base);
+  if (state.settings.theme === "dark") {
+    if (lum >= 0.58) return rgbToHex(base.r, base.g, base.b);
+    const mixed = mixRgb(base, { r: 255, g: 255, b: 255 }, 0.55);
+    return rgbToHex(mixed.r, mixed.g, mixed.b);
+  }
+  if (lum <= 0.28) return rgbToHex(base.r, base.g, base.b);
+  const mixed = mixRgb(base, { r: 0, g: 0, b: 0 }, 0.62);
+  return rgbToHex(mixed.r, mixed.g, mixed.b);
+}
+
 function normalizeDialogCommandTarget(raw) {
   const compact = String(raw || "")
     .trim()
@@ -382,6 +602,75 @@ function normalizeDialogCommands(incoming, fallbackToDefaults = true) {
     normalized.push({ alias, target });
   });
   return normalized;
+}
+
+function normalizePhoneticDictionary(incoming) {
+  if (!Array.isArray(incoming)) return [];
+  const out = [];
+  incoming.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const word = String(item.word || "").trim();
+    const replacement = String(item.replacement || "").trim();
+    if (!word || !replacement) return;
+    out.push({ word, replacement });
+  });
+  return out;
+}
+
+function applyPhoneticDictionary(text) {
+  let out = String(text || "");
+  const dictionary = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+  const latestByWord = new Map();
+  for (let i = dictionary.length - 1; i >= 0; i -= 1) {
+    const item = dictionary[i];
+    const key = item.word.toLowerCase();
+    if (!latestByWord.has(key)) latestByWord.set(key, item);
+  }
+  const effectiveDictionary = Array.from(latestByWord.values()).sort((a, b) => b.word.length - a.word.length);
+  effectiveDictionary.forEach((item) => {
+    const escaped = escapeRegExp(item.word);
+    const re = new RegExp(`(^|[^A-Za-z0-9_])(${escaped})(?=$|[^A-Za-z0-9_])`, "gi");
+    out = out.replace(re, (match, prefix) => `${prefix}${item.replacement}`);
+  });
+  return out;
+}
+
+function renderPhoneticDictionary() {
+  if (!phoneticList) return;
+  const items = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+  state.settings.phoneticDictionary = items;
+  const counts = new Map();
+  const latestIndexByWord = new Map();
+  items.forEach((item, idx) => {
+    const key = item.word.toLowerCase();
+    counts.set(key, (counts.get(key) || 0) + 1);
+    latestIndexByWord.set(key, idx);
+  });
+  if (!items.length) {
+    phoneticList.innerHTML = '<small class="dialog-empty">No phonetic entries yet.</small>';
+    return;
+  }
+  phoneticList.innerHTML = items
+    .map((item, idx) => {
+      const key = item.word.toLowerCase();
+      const isDuplicate = (counts.get(key) || 0) > 1;
+      const isLatest = latestIndexByWord.get(key) === idx;
+      const duplicateStatus = isDuplicate
+        ? `<small class="phonetic-dup-note">${isLatest ? "active duplicate (newest used)" : "overridden by newer entry"}</small>`
+        : "";
+      return `
+      <div class="phonetic-item${isDuplicate ? " duplicate" : ""}${isLatest && isDuplicate ? " active-duplicate" : ""}" data-phonetic-index="${idx}">
+        <div class="phonetic-item-text">
+          <strong>${escapeHtml(item.word)}</strong><span class="phonetic-arrow"> > </span><em>${escapeHtml(item.replacement)}</em>
+          ${duplicateStatus}
+        </div>
+        <div class="phonetic-item-actions">
+          <button type="button" data-phonetic-play="${idx}" title="Play pronunciation">Play</button>
+          <button type="button" data-phonetic-remove="${idx}" title="Remove entry">Remove</button>
+        </div>
+      </div>`;
+    })
+    .join("");
 }
 
 function resolveNarratorVoice() {
@@ -517,8 +806,10 @@ function getConfigForExport() {
       theme: state.settings.theme,
       autoPasteClipboard: state.settings.autoPasteClipboard,
       dialogueVoices: state.settings.dialogueVoices,
+      speakerColors: state.settings.speakerColors,
       speakerProfiles: state.settings.speakerProfiles,
       dialogCommands: state.settings.dialogCommands,
+      phoneticDictionary: state.settings.phoneticDictionary,
     },
     hotkeys: state.settings.hotkeys,
   };
@@ -558,11 +849,17 @@ async function importConfigFile(file) {
   state.settings.dialogueVoices = normalizeDialogueVoices(
     importedSettings.dialogueVoices ?? state.settings.dialogueVoices
   );
+  state.settings.speakerColors = normalizeSpeakerColors(
+    importedSettings.speakerColors ?? state.settings.speakerColors
+  );
   state.settings.speakerProfiles = normalizeSpeakerProfiles(
     importedSettings.speakerProfiles ?? state.settings.speakerProfiles
   );
   state.settings.dialogCommands = normalizeDialogCommands(
     importedSettings.dialogCommands ?? state.settings.dialogCommands
+  );
+  state.settings.phoneticDictionary = normalizePhoneticDictionary(
+    importedSettings.phoneticDictionary ?? state.settings.phoneticDictionary
   );
   syncSpeakerIdCounter();
   persistLocalSettings();
@@ -571,6 +868,7 @@ async function importConfigFile(file) {
 
   renderVoiceOptions();
   renderModels();
+  renderPhoneticDictionary();
   openSettings();
 }
 
@@ -615,6 +913,37 @@ function getApiBase() {
   return (state.settings.serverUrl || "").trim().replace(/\/$/, "");
 }
 
+function randomClientId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID().replace(/-/g, "");
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+}
+
+function getApiClientId() {
+  if (apiClientIdCache) return apiClientIdCache;
+  let existing = "";
+  try {
+    existing = String(localStorage.getItem(API_CLIENT_ID_KEY) || "").trim();
+  } catch (_err) {
+    existing = "";
+  }
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(existing)) {
+    existing = randomClientId();
+    try {
+      localStorage.setItem(API_CLIENT_ID_KEY, existing);
+    } catch (_err) {
+      // Ignore storage write failures and continue with in-memory ID.
+    }
+  }
+  apiClientIdCache = existing;
+  return apiClientIdCache;
+}
+
+function apiFetch(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set(API_CLIENT_ID_HEADER, getApiClientId());
+  return fetch(url, { ...options, headers });
+}
+
 function normalizeDownloadFormat(value) {
   return ["wav", "mp3", "ogg"].includes(value) ? value : "wav";
 }
@@ -649,13 +978,17 @@ function chunkNarratorText(text) {
   const out = [];
   paragraphs.forEach((paragraph) => {
     const sentences = paragraph.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [paragraph];
+    // Keep startup latency low: synthesize/play the first couple of sentences first.
     let bucket = [];
+    let targetSize = 2;
     for (let i = 0; i < sentences.length; i += 1) {
       bucket.push(sentences[i].trim());
-      if (bucket.length >= 4 || i === sentences.length - 1) {
+      if (bucket.length >= targetSize || i === sentences.length - 1) {
         const chunk = bucket.join(" ").trim();
         if (chunk) out.push(chunk);
         bucket = [];
+        // After the first chunk, use larger batches for better total throughput.
+        targetSize = 4;
       }
     }
   });
@@ -706,7 +1039,7 @@ function detectQuoteTarget(beforeText) {
 function pushNarratorChunks(segments, text) {
   const chunks = chunkNarratorText(text);
   chunks.forEach((chunk) => {
-    if (chunk && chunk.trim()) segments.push({ text: chunk.trim(), voice: resolveNarratorVoice() });
+    if (chunk && chunk.trim()) segments.push({ text: chunk.trim(), voice: resolveNarratorVoice(), role: "narrator", quoted: false });
   });
 }
 
@@ -726,7 +1059,7 @@ function parseVoiceSegments(text) {
     if (quoted) {
       const target = detectQuoteTarget(input.slice(0, match.index));
       const voice = target ? resolveVoiceByTarget(target) : resolveNarratorVoice();
-      segments.push({ text: quoted, voice });
+      segments.push({ text: quoted, voice, role: target || "narrator", quoted: true });
     }
     cursor = match.index + match[0].length;
   }
@@ -742,7 +1075,7 @@ async function warmVoice(voiceId) {
   if (!voice || warmedVoices.has(voice)) return;
   warmedVoices.add(voice);
   try {
-    await fetch(`${getApiBase()}/api/speak`, {
+    await apiFetch(`${getApiBase()}/api/speak`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -783,6 +1116,48 @@ function formatTime(iso) {
   return new Date(iso).toLocaleString();
 }
 
+function voiceLabelById(voiceId) {
+  const id = String(voiceId || "").trim();
+  if (!id) return "default";
+  const found = state.voices.find((v) => v.id === id);
+  return found?.label || id;
+}
+
+function roleTitle(role) {
+  if (role === "male") return "Male";
+  if (role === "female") return "Female";
+  if (role === "speaker1") return "Speaker 1";
+  if (role === "speaker2") return "Speaker 2";
+  if (role === "speaker3") return "Speaker 3";
+  if (role === "speaker4") return "Speaker 4";
+  return "Narrator";
+}
+
+function entryVoiceSummaryParts(entry) {
+  const segments = parseVoiceSegments(entry?.text || "");
+  const ordered = [];
+  const seen = new Set();
+  segments.forEach((segment) => {
+    const role = effectiveRoleForSegment(segment);
+    if (seen.has(role)) return;
+    seen.add(role);
+    const voice = String(segment.voice || "").trim();
+    ordered.push({
+      role,
+      label: voiceLabelById(voice),
+      title: roleTitle(role),
+    });
+  });
+  if (!ordered.length) {
+    ordered.push({
+      role: "narrator",
+      label: voiceLabelById(entry?.voice || state.settings.voice || ""),
+      title: roleTitle("narrator"),
+    });
+  }
+  return ordered;
+}
+
 function updateSettingsSyncStatus() {
   if (!settingsSyncStatus) return;
   settingsSyncStatus.textContent = "Settings are saved locally in this browser only.";
@@ -797,14 +1172,140 @@ function wordify(text) {
   return text.split(/(\s+)/).filter(Boolean);
 }
 
+function entryDisplayText(entry) {
+  const segments = parseVoiceSegments(entry?.text || "");
+  if (!segments.length) return String(entry?.text || "");
+  return segments
+    .map((segment) => {
+      const txt = String(segment?.text || "").trim();
+      if (!txt) return "";
+      return segment.quoted ? `"${txt}"` : txt;
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
+function roleRangesForDisplayText(entry) {
+  const segments = parseVoiceSegments(entry?.text || "");
+  const ranges = [];
+  let cursor = 0;
+  segments.forEach((segment, index) => {
+    const txt = String(segment?.text || "").trim();
+    if (!txt) return;
+    const piece = segment.quoted ? `"${txt}"` : txt;
+    const role = effectiveRoleForSegment(segment);
+    const start = cursor;
+    const end = start + piece.length;
+    ranges.push({ start, end, role });
+    cursor = end;
+    if (index < segments.length - 1) cursor += 1; // space between pieces
+  });
+  return ranges;
+}
+
+function effectiveRoleForSegment(segment) {
+  const role = String(segment?.role || "").trim().toLowerCase();
+  if (
+    role === "narrator" ||
+    role === "male" ||
+    role === "female" ||
+    role === "speaker1" ||
+    role === "speaker2" ||
+    role === "speaker3" ||
+    role === "speaker4"
+  ) {
+    return role;
+  }
+  return "narrator";
+}
+
+function tokenRolesForEntry(entry) {
+  const segments = parseVoiceSegments(entry?.text || "");
+  const out = [];
+  segments.forEach((segment) => {
+    const count = wordify(
+      segment.quoted ? `"${String(segment.text || "").trim()}"` : String(segment.text || "").trim()
+    ).length;
+    const role = effectiveRoleForSegment(segment);
+    for (let i = 0; i < count; i += 1) out.push(role);
+  });
+  return out;
+}
+
+function getPhoneticRanges(text) {
+  const source = String(text || "");
+  if (!source) return [];
+  const dictionary = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+  const latestByWord = new Map();
+  for (let i = dictionary.length - 1; i >= 0; i -= 1) {
+    const item = dictionary[i];
+    const key = item.word.toLowerCase();
+    if (!latestByWord.has(key)) latestByWord.set(key, item);
+  }
+  const words = Array.from(latestByWord.values()).map((item) => item.word).sort((a, b) => b.length - a.length);
+  const ranges = [];
+  words.forEach((word) => {
+    const escaped = escapeRegExp(word);
+    const re = new RegExp(`(^|[^A-Za-z0-9_])(${escaped})(?=$|[^A-Za-z0-9_])`, "gi");
+    let match;
+    while ((match = re.exec(source)) !== null) {
+      const prefixLen = (match[1] || "").length;
+      const matchedLen = (match[2] || "").length;
+      const start = match.index + prefixLen;
+      const end = start + matchedLen;
+      if (start < end) ranges.push({ start, end });
+    }
+  });
+  return ranges;
+}
+
+function colorForRole(role) {
+  const colors = normalizeSpeakerColors(state.settings.speakerColors);
+  if (role === "male") return themeAdjustedSpeakerColor(colors.male);
+  if (role === "female") return themeAdjustedSpeakerColor(colors.female);
+  if (role === "speaker1") return themeAdjustedSpeakerColor(colors.speaker1);
+  if (role === "speaker2") return themeAdjustedSpeakerColor(colors.speaker2);
+  if (role === "speaker3") return themeAdjustedSpeakerColor(colors.speaker3);
+  if (role === "speaker4") return themeAdjustedSpeakerColor(colors.speaker4);
+  return themeAdjustedSpeakerColor(colors.narrator);
+}
+
 function renderWordSpans(entry, activeIndex = -1) {
-  const words = wordify(entry.text);
+  const displayText = entryDisplayText(entry);
+  const words = wordify(displayText);
+  const roleRanges = roleRangesForDisplayText(entry);
+  const phoneticRanges = getPhoneticRanges(displayText);
+  let offset = 0;
   return words
     .map((word, idx) => {
-      const cls = idx === activeIndex ? "word active" : "word";
-      return `<span class="${cls}">${escapeHtml(word)}</span>`;
+      const start = offset;
+      const end = start + word.length;
+      offset = end;
+      const isPhonetic =
+        word.trim() &&
+        phoneticRanges.some((range) => {
+          return start < range.end && end > range.start;
+        });
+      const classes = ["word"];
+      if (idx === activeIndex) classes.push("active");
+      if (isPhonetic) classes.push("phonetic-word");
+      const roleRange = roleRanges.find((range) => start < range.end && end > range.start);
+      const role = roleRange ? roleRange.role : "narrator";
+      const color = colorForRole(role);
+      return `<span class="${classes.join(" ")}" style="color:${escapeHtml(color)}">${escapeHtml(word)}</span>`;
     })
     .join("");
+}
+
+function renderVoiceSummaryChips(entry) {
+  const parts = entryVoiceSummaryParts(entry);
+  return parts
+    .map((part) => {
+      const color = colorForRole(part.role);
+      const text = `${part.label} (${part.title})`;
+      return `<button type="button" class="voice-chip" data-voice-role="${escapeHtml(part.role)}" title="Change ${escapeHtml(part.title)} color" style="color:${escapeHtml(color)}">${escapeHtml(text)}</button>`;
+    })
+    .join(" ");
 }
 
 function escapeHtml(value) {
@@ -858,7 +1359,7 @@ function render() {
       <article class="msg ${focusedClass} ${pinnedClass}" tabindex="0" data-id="${entry.id}">
         <div class="msg-head">
           <span>${formatTime(entry.createdAt)}</span>
-          <span>${escapeHtml(entry.voice || "default")} | ${Number(entry.speed || 1).toFixed(1)}x</span>
+          <span>${renderVoiceSummaryChips(entry)} | ${Number(entry.speed || 1).toFixed(1)}x</span>
         </div>
         <div class="msg-text">${renderWordSpans(entry, entry.wordIndex ?? -1)}</div>
         <div class="msg-actions">
@@ -880,7 +1381,7 @@ function render() {
           (entry) => `
       <article class="msg pinned" tabindex="0" data-id="${entry.id}">
         <div class="msg-head"><span>${formatTime(entry.createdAt)}</span></div>
-        <div class="msg-text">${escapeHtml(entry.text)}</div>
+        <div class="msg-text">${escapeHtml(entryDisplayText(entry))}</div>
       </article>`
         )
         .join("")
@@ -896,7 +1397,7 @@ function indexById(id) {
 }
 
 async function fetchVoices() {
-  const res = await fetch(`${getApiBase()}/api/voices`);
+  const res = await apiFetch(`${getApiBase()}/api/voices`);
   if (!res.ok) {
     throw new Error(`Voices request failed (${res.status})`);
   }
@@ -905,14 +1406,22 @@ async function fetchVoices() {
   state.catalog = data.catalog || [];
   const available = new Set(state.voices.map((v) => v.id));
   if (!state.settings.voice || !available.has(state.settings.voice)) {
-    state.settings.voice = data.default || state.voices[0]?.id || "";
+    state.settings.voice = available.has(DEFAULT_MAIN_VOICE)
+      ? DEFAULT_MAIN_VOICE
+      : data.default || state.voices[0]?.id || "";
   }
   state.settings.dialogueVoices = normalizeDialogueVoices(state.settings.dialogueVoices);
   state.settings.speakerProfiles = normalizeSpeakerProfiles(state.settings.speakerProfiles);
+  const preferredByRole = {
+    narrator: DEFAULT_NARRATOR_VOICE,
+    male: DEFAULT_MALE_VOICE,
+    female: DEFAULT_FEMALE_VOICE,
+  };
   ["narrator", "male", "female"].forEach((role) => {
     const selected = state.settings.dialogueVoices[role];
     if (!selected || !available.has(selected)) {
-      state.settings.dialogueVoices[role] = state.settings.voice;
+      const preferred = preferredByRole[role];
+      state.settings.dialogueVoices[role] = available.has(preferred) ? preferred : state.settings.voice;
     }
   });
   state.settings.speakerProfiles = state.settings.speakerProfiles.map((profile, idx) => ({
@@ -964,7 +1473,7 @@ function renderModels() {
 }
 
 async function installVoiceModel(voiceId) {
-  const res = await fetch(`${getApiBase()}/api/voices/install`, {
+  const res = await apiFetch(`${getApiBase()}/api/voices/install`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ voice: voiceId }),
@@ -976,7 +1485,7 @@ async function installVoiceModel(voiceId) {
 }
 
 async function uninstallVoiceModel(voiceId) {
-  const res = await fetch(`${getApiBase()}/api/voices/${encodeURIComponent(voiceId)}`, {
+  const res = await apiFetch(`${getApiBase()}/api/voices/${encodeURIComponent(voiceId)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -985,17 +1494,17 @@ async function uninstallVoiceModel(voiceId) {
   }
 }
 
-async function playSettingsVoiceSampleNow(voiceOverride = "") {
+async function playSettingsVoiceSampleNow(voiceOverride = "", sampleTextOverride = "") {
   const previewVoice = voiceOverride || voiceSelect.value || state.settings.voice;
   const previewSpeed = Number(speedInput.value || state.settings.speed || 1);
   const previewPrependSilenceMs = normalizePrependSilenceMs(
     prependSilenceInput?.value ?? state.settings.prependSilenceMs ?? 0
   );
-  const sampleText = "This is a voice test. The quick brown fox jumps over the lazy dog.";
+  const sampleText = String(sampleTextOverride || "This is a voice test. The quick brown fox jumps over the lazy dog.");
 
   setLoading(true);
   try {
-    const res = await fetch(`${getApiBase()}/api/speak`, {
+    const res = await apiFetch(`${getApiBase()}/api/speak`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1055,6 +1564,66 @@ async function playSettingsVoiceSample() {
   });
 }
 
+async function playPhoneticPreviewNow(replacementText, voiceOverride = "") {
+  const text = String(replacementText || "").trim();
+  if (!text) return;
+  const previewVoice = voiceOverride || resolveNarratorVoice() || state.settings.voice;
+  const previewSpeed = Number(speedInput.value || state.settings.speed || 1);
+  const previewPrependSilenceMs = normalizePrependSilenceMs(
+    prependSilenceInput?.value ?? state.settings.prependSilenceMs ?? 0
+  );
+  await warmVoice(previewVoice);
+
+  setLoading(true);
+  try {
+    const res = await apiFetch(`${getApiBase()}/api/speak`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        voice: previewVoice,
+        speed: previewSpeed,
+        prependSilenceMs: previewPrependSilenceMs,
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Voice preview failed (${res.status})`);
+    }
+
+    const data = await res.json();
+    const audio = new Audio(absoluteAudioUrl(data.audioUrl));
+    audio.volume = normalizeVolume(state.settings.volume);
+    state.currentAudio = audio;
+    await waitForAudioReady(audio);
+    visualizer.classList.add("active");
+
+    const playOnce = () =>
+      new Promise((resolve, reject) => {
+        state.currentPlaybackAbort = () => resolve("aborted");
+        audio.currentTime = 0;
+        audio.addEventListener("ended", () => resolve("ended"), { once: true });
+        audio.addEventListener("error", () => reject(new Error("voice preview playback failed")), { once: true });
+        audio.play().catch(reject);
+      });
+
+    const first = await playOnce();
+    if (first === "aborted") return;
+    await sleep(2000);
+    const second = await playOnce();
+    if (second === "aborted") return;
+  } finally {
+    state.currentPlaybackAbort = null;
+    visualizer.classList.remove("active");
+    if (state.currentAudio) {
+      state.currentAudio.pause();
+      state.currentAudio.currentTime = 0;
+      state.currentAudio = null;
+    }
+    setLoading(false);
+  }
+}
+
 function getVoiceSelectById(id) {
   const map = {
     voiceSelect,
@@ -1072,15 +1641,17 @@ async function synthesize(entry) {
 async function synthesizeText(text, entry, voiceOverride) {
   let lastError = null;
   let chosenVoice = (voiceOverride || entry.voice || state.settings.voice || "").trim();
+  const normalizedText = applyPhoneticDictionary(text);
+  const prependSilenceMs = Math.max(MIN_SYNTH_PREPEND_SILENCE_MS, normalizePrependSilenceMs(state.settings.prependSilenceMs));
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const res = await fetch(`${getApiBase()}/api/speak`, {
+    const res = await apiFetch(`${getApiBase()}/api/speak`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text,
+        text: normalizedText,
         voice: chosenVoice,
         speed: entry.speed,
-        prependSilenceMs: normalizePrependSilenceMs(state.settings.prependSilenceMs),
+        prependSilenceMs,
       }),
     });
 
@@ -1129,6 +1700,9 @@ function setFocusedIndex(index) {
 async function playEntryNow(id) {
   const entry = entryById(id);
   if (!entry) return;
+  const playbackToken = ++state.playbackToken;
+  state.playbackAbortMode = "";
+  const isCanceled = () => playbackToken !== state.playbackToken;
 
   setLoading(true);
   try {
@@ -1137,20 +1711,40 @@ async function playEntryNow(id) {
       segments.length > 1 || (segments[0] && segments[0].voice && segments[0].voice !== entry.voice);
 
     if (shouldUseSegments) {
-      entry.segmentAudioSegments = [];
-      for (let i = 0; i < segments.length; i += 1) {
-        const segment = segments[i];
-        const segmentUrl = await synthesizeText(segment.text, entry, segment.voice);
-        entry.segmentAudioSegments.push({ url: segmentUrl, voice: segment.voice, text: segment.text });
-      }
-      saveHistory();
-      render();
+      state.segmentedPlaybackActive = true;
+      entry.segmentAudioSegments = new Array(segments.length);
+
+      const synthPromises = new Array(segments.length);
+      const ensureSegmentSynthesis = (index) => {
+        if (index < 0 || index >= segments.length) return Promise.resolve("");
+        if (synthPromises[index]) return synthPromises[index];
+        const segment = segments[index];
+        synthPromises[index] = synthesizeText(segment.text, entry, segment.voice).then((segmentUrl) => {
+          entry.segmentAudioSegments[index] = { url: segmentUrl, voice: segment.voice, text: segment.text };
+          saveHistory();
+          render();
+          return segmentUrl;
+        });
+        return synthPromises[index];
+      };
 
       const totalWords = segments.reduce((sum, segment) => sum + wordify(segment.text).length, 0);
       let consumedWords = 0;
-      for (let i = 0; i < entry.segmentAudioSegments.length; i += 1) {
-        const segmentItem = entry.segmentAudioSegments[i];
-        const segmentUrl = segmentItem.url;
+      for (let i = 0; i < segments.length; i += 1) {
+        if (isCanceled()) break;
+        const segmentUrl = await ensureSegmentSynthesis(i);
+        if (isCanceled()) break;
+        const segmentItem = entry.segmentAudioSegments[i] || {
+          url: segmentUrl,
+          voice: segments[i].voice,
+          text: segments[i].text,
+        };
+
+        // Pipeline: prefetch the next segment while the current one is playing.
+        if (i + 1 < segments.length) {
+          ensureSegmentSynthesis(i + 1).catch(() => {});
+        }
+
         const lineWords = wordify(segmentItem.text);
         const audio = new Audio(segmentUrl);
         audio.volume = normalizeVolume(state.settings.volume);
@@ -1165,20 +1759,30 @@ async function playEntryNow(id) {
         });
         audio.addEventListener("timeupdate", () => {
           if (!lineWords.length || !totalWords) return;
-          const localIdx = Math.min(lineWords.length - 1, Math.floor(audio.currentTime / interval));
+          const localIdx = Math.min(
+            lineWords.length - 1,
+            Math.floor((audio.currentTime + interval * 0.35) / interval)
+          );
           entry.wordIndex = Math.min(totalWords - 1, consumedWords + localIdx);
           render();
         });
-        await new Promise((resolve, reject) => {
-          state.currentPlaybackAbort = () => resolve();
+        const playResult = await new Promise((resolve, reject) => {
+          state.currentPlaybackAbort = () => resolve("aborted");
           audio.addEventListener("ended", resolve, { once: true });
           audio.addEventListener("error", () => reject(new Error("audio playback failed")), { once: true });
-          audio.play().catch(reject);
+          audio.play().then(() => {}).catch(reject);
         });
         state.currentPlaybackAbort = null;
+        if (playResult === "aborted") {
+          const mode = state.playbackAbortMode;
+          state.playbackAbortMode = "";
+          if (mode === "stop" || isCanceled()) break;
+        }
+        if (isCanceled()) break;
         consumedWords += lineWords.length;
-        if (i < entry.segmentAudioSegments.length - 1) {
-          const nextVoice = entry.segmentAudioSegments[i + 1].voice || "";
+        if (i < segments.length - 1) {
+          const nextSegmentItem = entry.segmentAudioSegments[i + 1];
+          const nextVoice = (nextSegmentItem && nextSegmentItem.voice) || segments[i + 1].voice || "";
           const currentVoice = segmentItem.voice || "";
           if (nextVoice && currentVoice && nextVoice !== currentVoice) {
             await sleep(VOICE_SWITCH_PAUSE_MS);
@@ -1186,6 +1790,7 @@ async function playEntryNow(id) {
         }
       }
       visualizer.classList.remove("active");
+      state.currentAudio = null;
       state.activePlaybackId = null;
       clearWordHighlights();
       render();
@@ -1195,6 +1800,7 @@ async function playEntryNow(id) {
     if (!entry.audioUrl) {
       await synthesize(entry);
       saveHistory();
+      if (isCanceled()) return;
     }
 
     const audio = new Audio(entry.audioUrl);
@@ -1204,7 +1810,7 @@ async function playEntryNow(id) {
     await waitForAudioReady(audio);
     visualizer.classList.add("active");
 
-    let words = wordify(entry.text);
+    let words = wordify(entryDisplayText(entry));
     let interval = 0.2;
 
     audio.addEventListener("loadedmetadata", () => {
@@ -1215,7 +1821,7 @@ async function playEntryNow(id) {
 
     audio.addEventListener("timeupdate", () => {
       if (!words.length) return;
-      const idx = Math.min(words.length - 1, Math.floor(audio.currentTime / interval));
+      const idx = Math.min(words.length - 1, Math.floor((audio.currentTime + interval * 0.35) / interval));
       entry.wordIndex = idx;
       render();
     });
@@ -1254,6 +1860,8 @@ async function playEntryNow(id) {
     render();
     throw err;
   } finally {
+    state.segmentedPlaybackActive = false;
+    state.playbackAbortMode = "";
     setLoading(false);
   }
 }
@@ -1270,12 +1878,14 @@ function safeDownloadName(entry, format) {
   return `piper-${voice}-${date}.${format}`;
 }
 
-function extractAudioFilename(audioUrl) {
-  if (!audioUrl) return "";
+function parseAudioReference(audioUrl) {
+  if (!audioUrl) return { filename: "", token: "" };
   const parsed = new URL(audioUrl, window.location.origin);
   const parts = parsed.pathname.split("/");
   const file = parts[parts.length - 1] || "";
-  return file.endsWith(".wav") ? file : "";
+  const filename = file.endsWith(".wav") ? file : "";
+  const token = parsed.searchParams.get("token") || "";
+  return { filename, token };
 }
 
 async function downloadEntry(id) {
@@ -1291,13 +1901,16 @@ async function downloadEntry(id) {
       render();
     }
 
-    const filename = extractAudioFilename(entry.audioUrl);
-    if (!filename) {
+    const audioRef = parseAudioReference(entry.audioUrl);
+    if (!audioRef.filename) {
       throw new Error("invalid audio URL");
     }
+    if (!audioRef.token) {
+      throw new Error("audio URL token missing");
+    }
 
-    const response = await fetch(
-      `${getApiBase()}/api/download/${encodeURIComponent(filename)}?format=${encodeURIComponent(format)}`
+    const response = await apiFetch(
+      `${getApiBase()}/api/download/${encodeURIComponent(audioRef.filename)}?format=${encodeURIComponent(format)}&token=${encodeURIComponent(audioRef.token)}`
     );
     if (!response.ok) {
       throw new Error(`Download failed (${response.status})`);
@@ -1443,6 +2056,19 @@ function bindEvents() {
   });
 
   chatList.addEventListener("click", async (ev) => {
+    const roleChip = ev.target.closest("[data-voice-role]");
+    if (roleChip) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const role = String(roleChip.getAttribute("data-voice-role") || "").trim();
+      if (!role || !inlineColorPicker) return;
+      const current = normalizeSpeakerColors(state.settings.speakerColors)[role] || "#ffffff";
+      inlineColorPicker.value = current;
+      inlineColorPicker.setAttribute("data-role", role);
+      inlineColorPicker.click();
+      return;
+    }
+
     const btn = ev.target.closest("button[data-action]");
     const row = ev.target.closest("article[data-id]");
     if (row) {
@@ -1551,6 +2177,20 @@ function bindEvents() {
 
   settingsBtn.addEventListener("click", openSettings);
   closeSettings.addEventListener("click", closeSettingsPanel);
+  skipAheadBtn?.addEventListener("click", () => {
+    skipAheadPlayback();
+  });
+  inlineColorPicker?.addEventListener("input", () => {
+    const role = String(inlineColorPicker.getAttribute("data-role") || "").trim();
+    if (!role) return;
+    const colors = normalizeSpeakerColors(state.settings.speakerColors);
+    if (!Object.prototype.hasOwnProperty.call(colors, role)) return;
+    colors[role] = normalizeHexColor(inlineColorPicker.value, colors[role]);
+    state.settings.speakerColors = colors;
+    applySpeakerColorInputs();
+    persistLocalSettings();
+    render();
+  });
   volumeInput.addEventListener("input", () => {
     state.settings.volume = normalizeVolume(volumeInput.value);
     if (settingsVolumeInput) settingsVolumeInput.value = String(state.settings.volume);
@@ -1680,6 +2320,65 @@ function bindEvents() {
     renderDialogCommandPills();
   });
 
+  const addPhoneticEntry = () => {
+    const word = String(phoneticWordInput?.value || "").trim();
+    const replacement = String(phoneticReplacementInput?.value || "").trim();
+    if (!word || !replacement) {
+      alert("Enter both a word/phrase and a pronunciation.");
+      return;
+    }
+    const list = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+    if (!list.some((item) => item.word.toLowerCase() === word.toLowerCase() && item.replacement === replacement)) {
+      list.push({ word, replacement });
+      state.settings.phoneticDictionary = list;
+      persistLocalSettings();
+      renderPhoneticDictionary();
+    }
+    if (phoneticWordInput) phoneticWordInput.value = "";
+    if (phoneticReplacementInput) phoneticReplacementInput.value = "";
+    phoneticWordInput?.focus();
+  };
+
+  addPhoneticBtn?.addEventListener("click", addPhoneticEntry);
+  phoneticReplacementInput?.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      addPhoneticEntry();
+    }
+  });
+
+  phoneticList?.addEventListener("click", async (ev) => {
+    const removeBtn = ev.target.closest("button[data-phonetic-remove]");
+    if (removeBtn) {
+      const idx = Number(removeBtn.getAttribute("data-phonetic-remove"));
+      const list = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+      if (Number.isInteger(idx) && idx >= 0 && idx < list.length) {
+        list.splice(idx, 1);
+        state.settings.phoneticDictionary = list;
+        persistLocalSettings();
+        renderPhoneticDictionary();
+      }
+      return;
+    }
+
+    const playBtn = ev.target.closest("button[data-phonetic-play]");
+    if (!playBtn) return;
+    const idx = Number(playBtn.getAttribute("data-phonetic-play"));
+    const list = normalizePhoneticDictionary(state.settings.phoneticDictionary);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= list.length) return;
+    const entry = list[idx];
+    playBtn.disabled = true;
+    try {
+      await enqueueAudioJob(async () => {
+        await playPhoneticPreviewNow(entry.replacement, resolveNarratorVoice());
+      });
+    } catch (err) {
+      alert(`Could not play pronunciation: ${err.message}`);
+    } finally {
+      playBtn.disabled = false;
+    }
+  });
+
   addSpeakerBtn?.addEventListener("click", () => {
     const current = readDialogueSettingsFromInputs();
     state.settings.speakerProfiles = current.speakerProfiles;
@@ -1725,6 +2424,7 @@ function bindEvents() {
     state.settings.hotkeys = readHotkeysFromInputs();
     const dialogueSettings = readDialogueSettingsFromInputs();
     state.settings.dialogueVoices = dialogueSettings.dialogueVoices;
+    state.settings.speakerColors = readSpeakerColorsFromInputs();
     state.settings.speakerProfiles = dialogueSettings.speakerProfiles;
     syncSpeakerIdCounter();
     persistLocalSettings();
@@ -1736,6 +2436,7 @@ function bindEvents() {
     applyTheme();
     renderVoiceOptions();
     renderModels();
+    render();
     updateSettingsSyncStatus();
     closeSettingsPanel();
   });
@@ -1752,6 +2453,8 @@ async function openSettings() {
   autoPasteInput.checked = Boolean(state.settings.autoPasteClipboard);
   applyHotkeyInputs();
   applyDialogueSettingsToInputs();
+  applySpeakerColorInputs();
+  renderPhoneticDictionary();
   updateSpeedLabel();
   renderVoiceOptions();
   renderModels();
@@ -1774,12 +2477,15 @@ async function init() {
   state.settings.autoPasteClipboard = Boolean(state.settings.autoPasteClipboard);
   state.settings.hotkeys = normalizeHotkeysObject(state.settings.hotkeys);
   state.settings.dialogueVoices = normalizeDialogueVoices(state.settings.dialogueVoices);
+  state.settings.speakerColors = normalizeSpeakerColors(state.settings.speakerColors);
   state.settings.speakerProfiles = normalizeSpeakerProfiles(state.settings.speakerProfiles);
   state.settings.dialogCommands = normalizeDialogCommands(state.settings.dialogCommands);
+  state.settings.phoneticDictionary = normalizePhoneticDictionary(state.settings.phoneticDictionary);
   syncSpeakerIdCounter();
   saveSettings();
   saveHistory();
   applyTheme();
+  initCollapsibleSettingsSections();
   bindEvents();
 
   serverUrlInput.value = state.settings.serverUrl;
@@ -1799,6 +2505,7 @@ async function init() {
 
   renderVoiceOptions();
   renderModels();
+  renderPhoneticDictionary();
   render();
   textInput.focus();
   textInput.select();

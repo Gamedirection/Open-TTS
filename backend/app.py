@@ -5,6 +5,10 @@ import subprocess
 import uuid
 import json
 import wave
+import time
+import hmac
+import hashlib
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,6 +25,7 @@ AUDIO_DIR = Path(os.getenv("PIPER_AUDIO_DIR", "/data/audio"))
 STATE_DIR = Path(os.getenv("OPEN_TTS_STATE_DIR", "/data/state"))
 SETTINGS_FILE = STATE_DIR / "settings.json"
 HISTORY_FILE = STATE_DIR / "history.json"
+CLIENT_STATE_DIR = STATE_DIR / "clients"
 SUPERTONIC_STATE_FILE = STATE_DIR / "supertonic_voices.json"
 DEFAULT_VOICE = os.getenv("PIPER_DEFAULT_VOICE", "en_US-lessac-medium")
 DEFAULT_VOICE_BASE = os.getenv(
@@ -31,7 +36,16 @@ PIPER_BIN = os.getenv("PIPER_BIN", "piper")
 SPEAK_TIMEOUT_SECONDS = int(os.getenv("PIPER_TIMEOUT_SECONDS", "60"))
 PREPEND_SILENCE_MS = int(os.getenv("OPEN_TTS_PREPEND_SILENCE_MS", "0"))
 VOICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
+CLIENT_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 ALLOWED_DOWNLOAD_FORMATS = {"wav", "mp3", "ogg"}
+CLIENT_ID_HEADER = "X-OpenTTS-Client"
+DEFAULT_AUDIO_URL_TOKEN_TTL_SECONDS = 24 * 60 * 60
+AUDIO_URL_TOKEN_TTL_SECONDS = int(os.getenv("OPEN_TTS_AUDIO_URL_TOKEN_TTL_SECONDS", str(DEFAULT_AUDIO_URL_TOKEN_TTL_SECONDS)))
+_token_secret_text = (os.getenv("OPEN_TTS_TOKEN_SECRET") or "").strip()
+if not _token_secret_text:
+    _token_secret_text = secrets.token_hex(32)
+    print("[open-tts] warning: OPEN_TTS_TOKEN_SECRET is not set; generated ephemeral token secret for this runtime")
+AUDIO_TOKEN_SECRET = _token_secret_text.encode("utf-8")
 SUPERTONIC_VOICE_NAMES = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"]
 SUPERTONIC_LANGS = {"en", "ko", "es", "pt", "fr"}
 SUPERTONIC_PREINSTALLED = {"supertonic:en:M1", "supertonic:en:F1"}
@@ -95,6 +109,7 @@ VOICE_CATALOG_BY_ID = {v["id"]: v for v in VOICE_CATALOG}
 VOICES_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+CLIENT_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_SETTINGS = {
     "voice": DEFAULT_VOICE,
@@ -123,6 +138,48 @@ def write_json_file(path: Path, data) -> None:
     tmp_path.replace(path)
 
 
+def normalized_client_id(raw_value: str) -> str:
+    value = str(raw_value or "").strip()
+    if not value:
+        return ""
+    if not CLIENT_ID_PATTERN.match(value):
+        return ""
+    return value
+
+
+def require_client_id():
+    client_id = normalized_client_id(request.headers.get(CLIENT_ID_HEADER))
+    if client_id:
+        return client_id, None
+    return None, (jsonify({"error": f"valid {CLIENT_ID_HEADER} header is required"}), 400)
+
+
+def optional_client_id():
+    raw_value = request.headers.get(CLIENT_ID_HEADER)
+    if raw_value is None:
+        return "", None
+    client_id = normalized_client_id(raw_value)
+    if client_id:
+        return client_id, None
+    return None, (jsonify({"error": f"invalid {CLIENT_ID_HEADER} header"}), 400)
+
+
+def client_state_key(client_id: str) -> str:
+    return hashlib.sha256(client_id.encode("utf-8")).hexdigest()
+
+
+def client_settings_path(client_id: str) -> Path:
+    if not client_id:
+        return SETTINGS_FILE
+    return CLIENT_STATE_DIR / f"{client_state_key(client_id)}.settings.json"
+
+
+def client_history_path(client_id: str) -> Path:
+    if not client_id:
+        return HISTORY_FILE
+    return CLIENT_STATE_DIR / f"{client_state_key(client_id)}.history.json"
+
+
 def normalize_settings(data: dict) -> dict:
     incoming = data or {}
     merged = {**DEFAULT_SETTINGS, **incoming}
@@ -141,24 +198,24 @@ def normalize_settings(data: dict) -> dict:
     return merged
 
 
-def load_settings() -> dict:
-    return normalize_settings(read_json_file(SETTINGS_FILE, DEFAULT_SETTINGS))
+def load_settings(client_id: str = "") -> dict:
+    return normalize_settings(read_json_file(client_settings_path(client_id), DEFAULT_SETTINGS))
 
 
-def save_settings(data: dict) -> dict:
+def save_settings(data: dict, client_id: str = "") -> dict:
     settings = normalize_settings(data)
-    write_json_file(SETTINGS_FILE, settings)
+    write_json_file(client_settings_path(client_id), settings)
     return settings
 
 
-def load_history() -> list:
-    history = read_json_file(HISTORY_FILE, [])
+def load_history(client_id: str = "") -> list:
+    history = read_json_file(client_history_path(client_id), [])
     return history if isinstance(history, list) else []
 
 
-def save_history(items: list) -> list:
+def save_history(items: list, client_id: str = "") -> list:
     history = items if isinstance(items, list) else []
-    write_json_file(HISTORY_FILE, history)
+    write_json_file(client_history_path(client_id), history)
     return history
 
 
@@ -382,6 +439,33 @@ def safe_audio_filename(name: str) -> str:
     return base
 
 
+def audio_access_token(filename: str, expires_at: int) -> str:
+    msg = f"{filename}:{expires_at}".encode("utf-8")
+    signature = hmac.new(AUDIO_TOKEN_SECRET, msg, hashlib.sha256).hexdigest()
+    return f"{expires_at}.{signature}"
+
+
+def make_audio_access_token(filename: str) -> str:
+    ttl = max(60, AUDIO_URL_TOKEN_TTL_SECONDS)
+    expires_at = int(time.time()) + ttl
+    return audio_access_token(filename, expires_at)
+
+
+def verify_audio_access_token(filename: str, token: str) -> bool:
+    token = str(token or "").strip()
+    if "." not in token:
+        return False
+    exp_raw, provided_sig = token.split(".", 1)
+    try:
+        expires_at = int(exp_raw)
+    except ValueError:
+        return False
+    if expires_at < int(time.time()):
+        return False
+    expected = audio_access_token(filename, expires_at)
+    return hmac.compare_digest(expected, token)
+
+
 def safe_download_format(value: str) -> str:
     fmt = (value or "wav").strip().lower()
     return fmt if fmt in ALLOWED_DOWNLOAD_FORMATS else "wav"
@@ -557,32 +641,47 @@ def health():
 
 @app.get("/api/settings")
 def get_settings():
-    return jsonify(load_settings())
+    client_id, err = require_client_id()
+    if err:
+        return err
+    return jsonify(load_settings(client_id))
 
 
 @app.put("/api/settings")
 def put_settings():
+    client_id, err = require_client_id()
+    if err:
+        return err
     body = request.get_json(silent=True) or {}
-    saved = save_settings(body)
+    saved = save_settings(body, client_id)
     return jsonify(saved)
 
 
 @app.get("/api/history")
 def get_history():
-    return jsonify({"items": load_history()})
+    client_id, err = require_client_id()
+    if err:
+        return err
+    return jsonify({"items": load_history(client_id)})
 
 
 @app.put("/api/history")
 def put_history():
+    client_id, err = require_client_id()
+    if err:
+        return err
     body = request.get_json(silent=True)
     if not isinstance(body, list):
         return jsonify({"error": "history body must be an array"}), 400
-    saved = save_history(body)
+    saved = save_history(body, client_id)
     return jsonify({"ok": True, "items": saved})
 
 
 @app.post("/api/history")
 def post_history():
+    client_id, err = require_client_id()
+    if err:
+        return err
     body = request.get_json(silent=True) or {}
     if not isinstance(body, dict):
         return jsonify({"error": "history entry must be an object"}), 400
@@ -601,9 +700,9 @@ def post_history():
     if not entry["createdAt"]:
         entry["createdAt"] = datetime.now(timezone.utc).isoformat()
 
-    history = load_history()
+    history = load_history(client_id)
     history.append(entry)
-    save_history(history)
+    save_history(history, client_id)
     return jsonify({"ok": True, "entry": entry}), 201
 
 
@@ -704,11 +803,14 @@ def uninstall_voice(voice_id: str):
 
 @app.post("/api/speak")
 def speak():
+    client_id, err = optional_client_id()
+    if err:
+        return err
     body = request.get_json(silent=True) or {}
     text = (body.get("text") or "").strip()
     voice = (body.get("voice") or DEFAULT_VOICE).strip()
     speed = float(body.get("speed") or 1.0)
-    current_settings = load_settings()
+    current_settings = load_settings(client_id)
     silence_ms = int(current_settings.get("prependSilenceMs", PREPEND_SILENCE_MS))
     if body.get("prependSilenceMs") is not None:
         try:
@@ -775,10 +877,11 @@ def speak():
         # Do not fail synthesis when silence prepend fails.
         print(f"[open-tts] warning: could not prepend silence: {exc}")
 
+    token = make_audio_access_token(output_name)
     return (
         jsonify(
             {
-                "audioUrl": f"/api/audio/{output_name}",
+                "audioUrl": f"/api/audio/{output_name}?token={token}",
                 "voice": voice,
                 "speed": speed,
             }
@@ -792,6 +895,9 @@ def audio(name: str):
     filename = safe_audio_filename(name)
     if not filename:
         return jsonify({"error": "invalid filename"}), 400
+    token = request.args.get("token", "")
+    if not verify_audio_access_token(filename, token):
+        return jsonify({"error": "forbidden"}), 403
     return send_from_directory(AUDIO_DIR, filename, mimetype="audio/wav")
 
 
@@ -800,6 +906,9 @@ def download_audio(name: str):
     filename = safe_audio_filename(name)
     if not filename:
         return jsonify({"error": "invalid filename"}), 400
+    token = request.args.get("token", "")
+    if not verify_audio_access_token(filename, token):
+        return jsonify({"error": "forbidden"}), 403
 
     source_path = AUDIO_DIR / filename
     if not source_path.exists():

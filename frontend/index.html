@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Open-TTS</title>
-    <link rel="stylesheet" href="styles.css?v=0.3.1" />
+    <link rel="stylesheet" href="styles.css?v=0.3.3" />
   </head>
   <body>
     <div class="app-shell">
@@ -31,7 +31,9 @@
           <span class="spinner" aria-hidden="true"></span>
           <span>Preparing audio...</span>
         </div>
+        <input id="inlineColorPicker" type="color" hidden aria-hidden="true" />
         <div class="playback-controls">
+          <button id="skipAheadBtn" type="button" class="skip-ahead-btn" title="Skip ahead">>></button>
           <label class="volume-control" for="volumeInput">
             <span>Volume</span>
             <input id="volumeInput" type="range" min="0" max="1" step="0.01" />
@@ -100,6 +102,21 @@
           <div id="speakerProfilesList" class="speaker-profiles-list" aria-label="Speaker profiles"></div>
           <small>Use lines like: <code>M"Hi"</code>, <code>F"Hi"</code>, <code>He said "Hi"</code>, <code>She said "Hi"</code>, <code>Speaker 1: "Hi"</code>, or <code>Alice: "Hi"</code>.</small>
         </section>
+        <section class="model-manager" aria-label="Speaker text colors">
+          <div class="model-manager-head">
+            <strong>Speaker Text Colors</strong>
+          </div>
+          <div class="speaker-color-grid">
+            <label>Narrator <input id="narratorColorInput" type="color" /></label>
+            <label>Male <input id="maleColorInput" type="color" /></label>
+            <label>Female <input id="femaleColorInput" type="color" /></label>
+            <label>Speaker 1 <input id="speaker1ColorInput" type="color" /></label>
+            <label>Speaker 2 <input id="speaker2ColorInput" type="color" /></label>
+            <label>Speaker 3 <input id="speaker3ColorInput" type="color" /></label>
+            <label>Speaker 4 <input id="speaker4ColorInput" type="color" /></label>
+          </div>
+          <small>Colors auto-adjust for contrast between light and dark themes.</small>
+        </section>
         <section class="model-manager" aria-label="Dialog commands">
           <div class="model-manager-head">
             <strong>Dialog Commands</strong>
@@ -111,6 +128,18 @@
           </div>
           <div id="dialogCommandPills" class="dialog-command-pills" aria-label="Dialog command pills"></div>
           <small>Targets: <code>narrator</code>, <code>male</code>, <code>female</code>, or <code>speaker1..speakerN</code> (based on your current speaker list).</small>
+        </section>
+        <section id="phoneticSection" class="model-manager" aria-label="Phonetic dictionary">
+          <div class="model-manager-head">
+            <strong>Phonetic Dictionary</strong>
+          </div>
+          <div class="phonetic-add-row">
+            <input id="phoneticWordInput" type="text" placeholder="Word or phrase (e.g. Open-TTS)" />
+            <input id="phoneticReplacementInput" type="text" placeholder="How to say it (e.g. O-pen-Te-Te-es)" />
+            <button type="button" id="addPhoneticBtn">Add</button>
+          </div>
+          <div id="phoneticList" class="phonetic-list" aria-label="Phonetic replacements"></div>
+          <small>Replacements are applied automatically before speech synthesis. Saved in config export/import.</small>
         </section>
         <label>
           Speed
@@ -199,7 +228,7 @@
           <small>Version: <code>0.5.0</code></small>
           <small>OpenAPI Docs: <a href="/api/docs" target="_blank" rel="noreferrer">/api/docs</a></small>
           <small>OpenAPI JSON: <a href="/api/openapi.json" target="_blank" rel="noreferrer">/api/openapi.json</a></small>
-          <small>GitHub: <a href="https://github.com/your-org/your-repo" target="_blank" rel="noreferrer">https://github.com/your-org/your-repo</a></small>
+          <small>GitHub: <a href="https://github.com/Gamedirection/Open-TTS" target="_blank" rel="noreferrer">https://github.com/Gamedirection/Open-TTS</a></small>
         </section>
       </form>
       <div class="settings-actions">
@@ -208,6 +237,6 @@
       </div>
     </aside>
 
-    <script src="app.js?v=0.3.1"></script>
+    <script src="app.js?v=0.3.3"></script>
   </body>
 </html>
