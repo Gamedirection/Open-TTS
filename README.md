@@ -29,6 +29,12 @@ Open-TTS is a Docker-first text-to-speech service and web UI with chat-style pla
 - Dark mode default.
 - Browser extension (Chrome + Firefox) with popup controls and context-menu readout.
 
+<img width="1688" height="1890" alt="image" src="https://github.com/user-attachments/assets/bcbdb317-72cf-4058-ac49-a1e67fc84bb5" />
+<img width="1786" height="2017" alt="image" src="https://github.com/user-attachments/assets/cba34b64-8dbd-4396-b730-a0e0db1edb95" />
+<img width="856" height="704" alt="image" src="https://github.com/user-attachments/assets/40325635-87c3-4890-bcfa-ea44430176fc" />
+<img width="854" height="1530" alt="image" src="https://github.com/user-attachments/assets/62e96ca9-1373-4f3e-a190-63ed84525c35" />
+
+
 ## Requirements
 - Docker Engine with Docker Compose plugin.
 - Network access from containers for model downloads (Piper/Supertonic) if models are not already cached.
