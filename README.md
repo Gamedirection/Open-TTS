@@ -2,6 +2,9 @@
 
 Open-TTS is a Docker-first text-to-speech service and web UI with chat-style playback, voice management, downloads, and browser extension support.
 
+<img width="1325" height="380" alt="image" src="https://github.com/user-attachments/assets/299ba90c-fe34-4e84-88c3-6464cf899b20" />
+
+
 ## Version
 - Current app version: `0.6.0`
 - See `CHANGELOG.md` for release history.
